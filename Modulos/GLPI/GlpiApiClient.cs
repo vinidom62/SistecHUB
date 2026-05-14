@@ -22,6 +22,9 @@ public sealed record GlpiItilCategoryLite(int Id, string Label);
 /// <summary>Cliente HTTP para a API REST do GLPI (sessão + consulta de entidade).</summary>
 public static class GlpiApiClient
 {
+    const string BaseUrl = "https://sistecsistema.online/angelus";
+    const string AppToken = "HIdUB6NQVzatXVpLNlQCSZAUKtMhVQm97mRHErZ8";
+
     static string NormalizeApiRoot(string? baseUrl)
     {
         var t = (baseUrl ?? "").Trim().TrimEnd('/');
@@ -36,8 +39,8 @@ public static class GlpiApiClient
 
     static void EnsureGlpiCredentials(AppUserSettings settings)
     {
-        if (string.IsNullOrWhiteSpace(settings.GlpiAppToken) || string.IsNullOrWhiteSpace(settings.GlpiUserToken))
-            throw new InvalidOperationException("Configure o App token e o User token do GLPI nas configurações.");
+        if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
+            throw new InvalidOperationException("Configure o User token do GLPI nas configurações.");
     }
 
     static async Task<T> ExecuteWithGlpiSessionAsync<T>(
@@ -48,8 +51,8 @@ public static class GlpiApiClient
         EnsureGlpiCredentials(settings);
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
-        var apiRoot = NormalizeApiRoot(settings.GlpiBaseUrl);
-        var appToken = settings.GlpiAppToken.Trim();
+        var apiRoot = NormalizeApiRoot(BaseUrl);
+        var appToken = AppToken;
         var userToken = settings.GlpiUserToken.Trim();
         var sessionToken = await InitSessionAsync(http, apiRoot, appToken, userToken, cancellationToken)
             .ConfigureAwait(false);
@@ -87,6 +90,21 @@ public static class GlpiApiClient
                 return (entity, counts);
             },
             cancellationToken);
+
+    /// <summary>
+    /// Verifica se os tokens e o <see cref="AppUserSettings.EntityId"/> permitem sessão GLPI
+    /// e leitura da <c>Entity</c> indicada (mesma lógica de uso no arranque).
+    /// </summary>
+    public static Task ValidateGlpiAndEntityAsync(AppUserSettings settings, CancellationToken cancellationToken = default)
+    {
+        if (!int.TryParse(settings.EntityId?.Trim(), out var eid) || eid < 1)
+        {
+            throw new InvalidOperationException(
+                "O ID da entidade tem de ser um número inteiro (ex.: o id da entidade no GLPI).");
+        }
+
+        return GetEntityAndTicketCountsAsync(settings, eid, cancellationToken);
+    }
 
     /// <summary>Obtém o <c>id</c> do utilizador GLPI pelo login (<c>glpi_users.name</c>).</summary>
     public static Task<int?> GetUserIdByLoginAsync(
@@ -677,19 +695,50 @@ public static class GlpiApiClient
 
     static int ParseCreatedIdFromBody(string body, string contexto)
     {
+        if (!TryGetCreatedIdElement(body, out var id))
+            throw new InvalidOperationException($"Resposta do GLPI sem id ({contexto}).");
+        return id;
+    }
+
+    static bool TryGetCreatedIdElement(string body, out int id)
+    {
+        id = 0;
         using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement;
-        if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var id))
-            return id;
+        return TryGetCreatedIdInElement(doc.RootElement, out id);
+    }
 
-        if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
+    static bool TryGetCreatedIdInElement(JsonElement el, out int id)
+    {
+        id = 0;
+        if (el.ValueKind == JsonValueKind.Object)
         {
-            var first = root[0];
-            if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty("id", out var idEl2) && idEl2.TryGetInt32(out var id2))
-                return id2;
+            if (el.TryGetProperty("id", out var idEl) && TryGetJsonIdAsInt32(idEl, out id))
+                return true;
+            foreach (var sub in new[] { "data", "message", "item", "result" })
+            {
+                if (el.TryGetProperty(sub, out var nest) && nest.ValueKind == JsonValueKind.Object &&
+                    nest.TryGetProperty("id", out var idNested) && TryGetJsonIdAsInt32(idNested, out id))
+                    return true;
+            }
         }
+        if (el.ValueKind == JsonValueKind.Array && el.GetArrayLength() > 0)
+        {
+            var first = el[0];
+            if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty("id", out var idEl2) &&
+                TryGetJsonIdAsInt32(idEl2, out id))
+                return true;
+        }
+        return false;
+    }
 
-        throw new InvalidOperationException($"Resposta do GLPI sem id ({contexto}).");
+    static bool TryGetJsonIdAsInt32(JsonElement idEl, out int id)
+    {
+        if (idEl.TryGetInt32(out id))
+            return true;
+        if (idEl.ValueKind == JsonValueKind.String && int.TryParse(idEl.GetString(), out id))
+            return true;
+        id = 0;
+        return false;
     }
 
     static async Task TryKillSessionAsync(

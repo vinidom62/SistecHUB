@@ -69,7 +69,7 @@ public static class ChamadoParaGLPI
         try
         {
             _ = GroqClient.ResolveApiKey(settings);
-            return !string.IsNullOrWhiteSpace(settings.GroqModel?.Trim());
+            return true;
         }
         catch
         {
@@ -145,8 +145,7 @@ public static class ChamadoParaGLPI
             var completion = await GroqClient.CompleteChatAsync(
                     settings,
                     messages,
-                    model: null,
-                    temperature: 0.2,
+                    GroqClient.TitleGenerationTemperature,
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -220,8 +219,7 @@ public static class ChamadoParaGLPI
             var completion = await GroqClient.CompleteChatAsync(
                     settings,
                     messages,
-                    model: null,
-                    temperature: 0.1,
+                    GroqClient.CategoryResolutionTemperature,
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -233,10 +231,13 @@ public static class ChamadoParaGLPI
         }
     }
 
+    static void Reportar(IProgress<string>? progress, string mensagem) => progress?.Report(mensagem);
+
     /// <summary>Cria o chamado no GLPI e devolve o id do ticket.</summary>
     public static async Task<int> EnviarAsync(
         AberturaChamadoView view,
         AppUserSettings settings,
+        IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(view.TextoProblema))
@@ -248,27 +249,34 @@ public static class ChamadoParaGLPI
         if (string.IsNullOrWhiteSpace(view.NomeContato))
             throw new InvalidOperationException("Indique o nome de contacto.");
 
-        if (string.IsNullOrWhiteSpace(settings.GlpiBaseUrl)
-            || string.IsNullOrWhiteSpace(settings.GlpiAppToken)
-            || string.IsNullOrWhiteSpace(settings.GlpiUserToken))
-            throw new InvalidOperationException("Configure os tokens do GLPI em Configurações.");
+        if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
+            throw new InvalidOperationException("Configure o User token do GLPI em Configurações.");
 
         if (!int.TryParse((settings.EntityId ?? "").Trim(), out var entityId))
             throw new InvalidOperationException("Indique um Id da entidade (client id) válido em Configurações.");
 
         var problema = view.TextoProblema.Trim();
+        Reportar(
+            progress,
+            GroqDisponivel(settings) ? "Criando título com IA…" : "A preparar título…");
         var tituloBase = await GerarTituloChamadoAsync(problema, settings, cancellationToken).ConfigureAwait(false);
         var titulo = AplicarPrefixoTituloSistecHub(tituloBase);
         var descricao = MontarDescricao(view);
 
+        Reportar(progress, "A carregar categorias do GLPI…");
         var categoriasGlpi = await GlpiApiClient.GetItilCategoriesAsync(settings, cancellationToken).ConfigureAwait(false);
         var categoriasParaIa = categoriasGlpi.Count <= MaxCategoriasNoPromptIa
             ? categoriasGlpi
             : categoriasGlpi.Take(MaxCategoriasNoPromptIa).ToList();
+        var categoriasElegiveisIa = categoriasParaIa.Count > 0 && GroqDisponivel(settings);
+        Reportar(
+            progress,
+            categoriasElegiveisIa ? "Selecionando categoria com IA…" : "A processar categoria do chamado…");
         var categoriaItilId =
             await ResolverCategoriaItilComIaAsync(problema, categoriasParaIa, settings, cancellationToken)
                 .ConfigureAwait(false);
 
+        Reportar(progress, "A localizar o requerente no GLPI…");
         var requerenteId = await GlpiApiClient.GetUserIdByLoginAsync(settings, LoginRequerenteGlpi, cancellationToken)
             .ConfigureAwait(false);
         if (requerenteId is null)
@@ -278,6 +286,9 @@ public static class ChamadoParaGLPI
                 + "Crie esse utilizador (ou ajuste o login) para que o chamado possa ser aberto com o requerente correto.");
         }
 
+        Reportar(progress, "Enviando chamado…");
+        await Task.Yield();
+        Reportar(progress, "Aguardando servidor…");
         var ticketId = await GlpiApiClient.CreateTicketAsync(
                 settings,
                 entityId,
@@ -291,6 +302,7 @@ public static class ChamadoParaGLPI
         var caminhoAnexo = view.CaminhoAnexo;
         if (!string.IsNullOrWhiteSpace(caminhoAnexo) && File.Exists(caminhoAnexo))
         {
+            Reportar(progress, "A enviar anexo, aguarde o servidor…");
             await GlpiApiClient.UploadTicketAttachmentAsync(settings, entityId, ticketId, caminhoAnexo, cancellationToken)
                 .ConfigureAwait(false);
         }

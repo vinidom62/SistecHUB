@@ -387,12 +387,10 @@ public sealed class ChamadosView : UserControl
         entityId = 0;
         error = "";
 
-        if (string.IsNullOrWhiteSpace(settings.GlpiBaseUrl)
-            || string.IsNullOrWhiteSpace(settings.GlpiAppToken)
-            || string.IsNullOrWhiteSpace(settings.GlpiUserToken))
+        if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
         {
             error =
-                "Configure os tokens do GLPI em Configurações para identificar a entidade.";
+                "Configure o User token do GLPI em Configurações para identificar a entidade.";
             return false;
         }
 

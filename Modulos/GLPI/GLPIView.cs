@@ -144,31 +144,71 @@ public sealed class GLPIView : UserControl
 
         var view = new AberturaChamadoView { Dock = DockStyle.Fill };
         view.CancelarClicado += (_, _) => ShowChamados(_navChamados, _navAbertura);
-        view.SolicitarChamadoClicado += async (_, _) => await OnSolicitarChamadoAsync(view).ConfigureAwait(true);
+        view.SolicitarChamadoClicado += (_, _) => OnSolicitarChamadoAsync(view);
         _submoduleHost.Controls.Add(view);
     }
 
-    async Task OnSolicitarChamadoAsync(AberturaChamadoView view)
+    void OnSolicitarChamadoAsync(AberturaChamadoView view)
     {
+        var owner = view.FindForm() as Form
+            ?? Form.ActiveForm
+            ?? (Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null);
+        if (owner is null)
+        {
+            MessageBox.Show("Não foi possível abrir a janela de envio.", "SistecHub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         view.Enabled = false;
+        using var aguarde = new EnvioChamadoAguardeForm
+        {
+            Owner = owner,
+            StartPosition = FormStartPosition.CenterParent,
+        };
+        IProgress<string> progresso = new Progress<string>(m => aguarde.DefinirMensagem(m));
+        aguarde.DefinirMensagem("A preparar…");
+
+        Exception? erroDepois = null;
+        int? ticketIdCriado = null;
+
+        aguarde.Shown += async (_, _) =>
+        {
+            try
+            {
+                var settings = AppSettingsStore.Load();
+                ticketIdCriado = await ChamadoParaGLPI.EnviarAsync(view, settings, progresso).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                erroDepois = ex;
+            }
+            finally
+            {
+                if (!aguarde.IsDisposed)
+                    aguarde.Close();
+            }
+        };
+
         try
         {
-            var settings = AppSettingsStore.Load();
-            var ticketId = await ChamadoParaGLPI.EnviarAsync(view, settings).ConfigureAwait(true);
-            MessageBox.Show(
-                $"Chamado criado no GLPI com sucesso (n.º {ticketId}).",
-                "SistecHub",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            ShowChamados(_navChamados, _navAbertura);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                ex.Message,
-                "Não foi possível enviar o chamado",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+            aguarde.ShowDialog(owner);
+            if (erroDepois is not null)
+            {
+                MessageBox.Show(
+                    erroDepois.Message,
+                    "Não foi possível enviar o chamado",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+            else if (ticketIdCriado is { } id)
+            {
+                MessageBox.Show(
+                    $"Chamado criado no GLPI com sucesso (n.º {id}).",
+                    "SistecHub",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                ShowChamados(_navChamados, _navAbertura);
+            }
         }
         finally
         {

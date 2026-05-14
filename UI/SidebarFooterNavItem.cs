@@ -7,6 +7,8 @@ namespace SistecHub.UI;
 /// </summary>
 internal sealed class SidebarFooterNavItem : Panel
 {
+    const int CornerRadius = 10;
+
     readonly string _glyph;
     readonly string _caption;
     readonly Font _iconFont;
@@ -14,8 +16,6 @@ internal sealed class SidebarFooterNavItem : Panel
 
     bool _hover;
     bool _selected;
-
-    public string PageId { get; }
 
     public bool Selected
     {
@@ -29,15 +29,14 @@ internal sealed class SidebarFooterNavItem : Panel
         }
     }
 
-    public SidebarFooterNavItem(string pageId, string mdl2Glyph, string caption)
+    public SidebarFooterNavItem(string mdl2Glyph, string caption)
     {
-        PageId = pageId;
         _glyph = mdl2Glyph;
         _caption = caption;
 
-        Height = 42;
+        Height = 44;
         Cursor = Cursors.Hand;
-        Margin = new Padding(0, 0, 0, 6);
+        Margin = new Padding(0, 0, 0, 4);
         BackColor = Color.Transparent;
 
         _iconFont = new Font("Segoe MDL2 Assets", 14F, FontStyle.Regular, GraphicsUnit.Point);
@@ -69,14 +68,15 @@ internal sealed class SidebarFooterNavItem : Panel
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-        var inner = ClientRectangle;
-        inner.Inflate(-2, -2);
-
-        if (inner.Width > 0 && inner.Height > 0)
+        var card = ClientRectangle;
+        card.Inflate(-1, -1);
+        if (card.Width > 0 && card.Height > 0)
         {
-            using var path = CreateRoundedRectPath(inner, 8);
+            g.TranslateTransform(card.X, card.Y);
+            using var path = ShellTheme.CreateRoundedRectanglePath(card.Width, card.Height, CornerRadius);
 
             if (_selected)
             {
@@ -87,26 +87,16 @@ internal sealed class SidebarFooterNavItem : Panel
             }
             else if (_hover)
             {
-                using var fill = new SolidBrush(Color.FromArgb(38, 52, 74));
+                using var fill = new SolidBrush(ShellTheme.MenuBtnHover);
                 g.FillPath(fill, path);
             }
+
+            g.ResetTransform();
         }
 
         using var fg = new SolidBrush(Color.FromArgb(226, 232, 240));
-        g.DrawString(_glyph, _iconFont, fg, 12, 9);
-        g.DrawString(_caption, _captionFont, fg, 40, 11);
-    }
-
-    static GraphicsPath CreateRoundedRectPath(Rectangle r, int radius)
-    {
-        int d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
-        var path = new GraphicsPath();
-        path.AddArc(r.Left, r.Top, d, d, 180, 90);
-        path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
-        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-        path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
+        g.DrawString(_glyph, _iconFont, fg, 12, 10);
+        g.DrawString(_caption, _captionFont, fg, 40, 12);
     }
 
     protected override void Dispose(bool disposing)

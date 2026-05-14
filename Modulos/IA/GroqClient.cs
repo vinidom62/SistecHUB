@@ -11,6 +11,10 @@ namespace SistecHub.Modulos.IA;
 public static class GroqClient
 {
     const string DefaultEndpoint = "https://api.groq.com/openai/v1/chat/completions";
+    const string Model = "openai/gpt-oss-120b";
+    const double DefaultTemperature = 0.5;
+    internal const double TitleGenerationTemperature = 0.2;
+    internal const double CategoryResolutionTemperature = 0.1;
 
     static readonly JsonSerializerOptions JsonWrite = new()
     {
@@ -25,7 +29,7 @@ public static class GroqClient
 
     /// <summary>
     /// Obtém a chave: variável de ambiente <c>GROQ_API_KEY</c> tem prioridade sobre
-    /// <see cref="AppUserSettings.GroqApiKey"/> (ex.: valor em <c>settings.json</c>).
+    /// <see cref="AppUserSettings.GroqApiKey"/> (valor guardado de forma protegida nas configurações).
     /// </summary>
     public static string ResolveApiKey(AppUserSettings settings)
     {
@@ -37,7 +41,7 @@ public static class GroqClient
             return settings.GroqApiKey.Trim();
 
         throw new InvalidOperationException(
-            "Defina a variável de ambiente GROQ_API_KEY ou o campo groqApiKey em settings.json.");
+            "Defina a variável de ambiente GROQ_API_KEY ou a chave Groq nas configurações da aplicação.");
     }
 
     /// <summary>Conclusão de chat com as mensagens indicadas.</summary>
@@ -45,40 +49,25 @@ public static class GroqClient
         AppUserSettings settings,
         IReadOnlyList<GroqChatMessage> messages,
         CancellationToken cancellationToken = default) =>
-        CompleteChatAsync(
-            settings,
-            messages,
-            model: null,
-            temperature: null,
-            cancellationToken);
+        CompleteChatAsync(settings, messages, DefaultTemperature, cancellationToken);
 
-    /// <summary>
-    /// Conclusão de chat; <paramref name="model"/> e <paramref name="temperature"/> opcionais
-    /// sobrepõem-se aos valores em <see cref="AppUserSettings"/>.
-    /// </summary>
     public static async Task<GroqChatCompletion> CompleteChatAsync(
         AppUserSettings settings,
         IReadOnlyList<GroqChatMessage> messages,
-        string? model,
-        double? temperature,
+        double temperature,
         CancellationToken cancellationToken = default)
     {
         if (messages is null || messages.Count == 0)
             throw new ArgumentException("É necessário pelo menos uma mensagem.", nameof(messages));
 
         var apiKey = ResolveApiKey(settings);
-        var resolvedModel = string.IsNullOrWhiteSpace(model) ? settings.GroqModel.Trim() : model.Trim();
-        if (resolvedModel.Length == 0)
-            throw new InvalidOperationException("O modelo Groq não está configurado (groqModel).");
-
-        var temp = temperature ?? settings.GroqTemperature;
 
         var endpoint = DefaultEndpoint;
 
         var payload = new ChatCompletionRequest
         {
-            Model = resolvedModel,
-            Temperature = temp,
+            Model = Model,
+            Temperature = temperature,
             Messages = messages
                 .Select(m => new ChatMessageDto { Role = m.Role, Content = m.Content })
                 .ToList(),
@@ -107,11 +96,40 @@ public static class GroqClient
         var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(body, JsonRead);
         var choice = parsed?.Choices?.FirstOrDefault();
         var content = choice?.Message?.Content ?? "";
-        return new GroqChatCompletion(
-            content,
-            choice?.FinishReason,
-            parsed?.Id,
-            parsed?.Model);
+        return new GroqChatCompletion(content);
+    }
+
+    /// <summary>
+    /// Contacta a API da Groq (listagem de modelos) para verificar a chave, sem completar chat.
+    /// </summary>
+    public static async Task ValidateApiKeyConnectionAsync(
+        AppUserSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        var apiKey = ResolveApiKey(settings);
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var req = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://api.groq.com/openai/v1/models?limit=1");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new InvalidOperationException(
+                "A chave da API Groq foi recusada (não autorizada). Verifique o token.");
+        }
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var hint = TryReadErrorMessage(body);
+            throw new InvalidOperationException(
+                hint is not null
+                    ? $"Groq: HTTP {(int)resp.StatusCode} — {hint}"
+                    : $"Não foi possível validar a chave da Groq (HTTP {(int)resp.StatusCode}).");
+        }
     }
 
     /// <summary>Atalho: uma mensagem de sistema opcional e texto do utilizador.</summary>
@@ -159,17 +177,11 @@ public static class GroqClient
 
     sealed class ChatCompletionResponse
     {
-        public string? Id { get; set; }
-
-        public string? Model { get; set; }
-
         public List<ChoiceDto>? Choices { get; set; }
     }
 
     sealed class ChoiceDto
     {
-        public string? FinishReason { get; set; }
-
         public MessageDto? Message { get; set; }
     }
 

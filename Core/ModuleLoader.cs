@@ -32,7 +32,8 @@ public static class ModuleLoader
         }
 
         return list
-            .OrderBy(m => m.MenuText, StringComparer.CurrentCultureIgnoreCase)
+            .OrderBy(m => m.MenuOrder)
+            .ThenBy(m => m.MenuText, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }
 }

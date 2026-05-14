@@ -16,18 +16,15 @@ internal sealed class MainForm : Form
     readonly NotifyIcon _trayIcon;
 
     bool _exitRequested;
+    string _activePageId = "home";
     UserControl? _transitionOldPage;
     UserControl? _transitionNewPage;
     long _transitionStartTick;
 
     public MainForm()
-        : this(ModuleLoader.DiscoverModules())
     {
-    }
-
-    public MainForm(IEnumerable<IAppModule> modules)
-    {
-        _modulesById = modules.ToDictionary(m => m.Id, StringComparer.OrdinalIgnoreCase);
+        _modulesById = ModuleLoader.DiscoverModules()
+            .ToDictionary(m => m.Id, StringComparer.OrdinalIgnoreCase);
 
         Text = "SistecHub";
         ClientSize = new Size(1280, 720);
@@ -127,8 +124,8 @@ internal sealed class MainForm : Form
             menuFlow.Controls.Add(btn);
         }
 
-        _footerCliente = new SidebarFooterNavItem("client", "\uE77B", "Cliente");
-        _footerSettings = new SidebarFooterNavItem("settings", "\uE713", "Configurações");
+        _footerCliente = new SidebarFooterNavItem("\uE77B", "Cliente");
+        _footerSettings = new SidebarFooterNavItem("\uE713", "Configurações");
 
         _footerFlow = new FlowLayoutPanel
         {
@@ -153,10 +150,12 @@ internal sealed class MainForm : Form
 
         void SyncFooterItemWidths()
         {
-            var w = Math.Max(0, sidebarFooter.ClientSize.Width - sidebarFooter.Padding.Horizontal);
+            var w = Math.Max(0, _footerFlow.ClientSize.Width - _footerFlow.Padding.Horizontal);
             _footerCliente.Width = w;
             _footerSettings.Width = w;
         }
+
+        _footerFlow.Resize += (_, _) => SyncFooterItemWidths();
 
         sidebarFooter.Paint += (_, e) =>
         {
@@ -234,6 +233,17 @@ internal sealed class MainForm : Form
         Activate();
     }
 
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == (int)SingleInstanceApp.InstanceActivateMessage)
+        {
+            ShowFromTray();
+            m.Result = IntPtr.Zero;
+            return;
+        }
+        base.WndProc(ref m);
+    }
+
     void RequestExit()
     {
         _exitRequested = true;
@@ -250,7 +260,14 @@ internal sealed class MainForm : Form
 
     void ShowPage(string id)
     {
+        if (string.Equals(id, "settings", StringComparison.OrdinalIgnoreCase)
+            && !TryAuthorizeSettingsAccess())
+        {
+            return;
+        }
+
         UpdateFooterSelection(id);
+        _activePageId = id;
 
         if (_pageTransitionTimer.Enabled)
         {
@@ -384,5 +401,15 @@ internal sealed class MainForm : Form
             return module.CreateContentView();
 
         return new PlaceholderView("SistecHub", "Página não encontrada.");
+    }
+
+    bool TryAuthorizeSettingsAccess()
+    {
+        using var prompt = new SettingsPasswordForm();
+        if (prompt.ShowDialog(this) == DialogResult.OK)
+            return true;
+
+        UpdateFooterSelection(_activePageId);
+        return false;
     }
 }

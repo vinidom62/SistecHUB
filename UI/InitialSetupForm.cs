@@ -2,18 +2,32 @@ using SistecHub.Core;
 
 namespace SistecHub.UI;
 
-internal sealed class SettingsView : UserControl
+internal sealed class InitialSetupForm : Form
 {
     readonly TextBox _entityIdTextBox;
     readonly TextBox _glpiUserTokenTextBox;
     readonly TextBox _groqApiKeyTextBox;
-    readonly Button _saveButton;
+    readonly Button _continueButton;
     readonly Label _feedbackLabel;
 
-    public SettingsView()
+    bool _setupCompleted;
+
+    public InitialSetupForm()
     {
+        Text = "SistecHub";
+        ClientSize = new Size(560, 520);
+        StartPosition = FormStartPosition.CenterScreen;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        MinimizeBox = false;
         BackColor = ShellTheme.MainBg;
-        Padding = new Padding(40, 36, 40, 36);
+        Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+
+        var appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        if (appIcon != null)
+            Icon = appIcon;
+
+        Win32Dwm.TryEnableRoundedCorners(this);
 
         var stack = new FlowLayoutPanel
         {
@@ -22,20 +36,32 @@ internal sealed class SettingsView : UserControl
             WrapContents = false,
             AutoScroll = true,
             BackColor = Color.Transparent,
-            Padding = new Padding(0),
+            Padding = new Padding(40, 36, 40, 36),
         };
 
         var title = new Label
         {
-            Text = "Configurações",
+            Text = "Configuração inicial",
             AutoSize = true,
             Font = new Font("Segoe UI", 18F, FontStyle.Bold, GraphicsUnit.Point),
             ForeColor = ShellTheme.TextPrimary,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 0, 0, 8),
+        };
+
+        var subtitle = new Label
+        {
+            Text = "Antes de usar o SistecHub, indique a entidade, o user token do GLPI e a chave da API Groq.",
+            AutoSize = true,
+            MaximumSize = new Size(460, 0),
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextMuted,
             BackColor = Color.Transparent,
             Margin = new Padding(0, 0, 0, 24),
         };
 
         stack.Controls.Add(title);
+        stack.Controls.Add(subtitle);
 
         stack.Controls.Add(MakeFieldLabel("Id da entidade (client id)"));
         _entityIdTextBox = MakeWideTextBox();
@@ -55,9 +81,9 @@ internal sealed class SettingsView : UserControl
         _groqApiKeyTextBox.UseSystemPasswordChar = true;
         stack.Controls.Add(_groqApiKeyTextBox);
 
-        _saveButton = new Button
+        _continueButton = new Button
         {
-            Text = "Salvar configurações",
+            Text = "Salvar e continuar",
             AutoSize = true,
             Height = 36,
             Padding = new Padding(16, 0, 16, 0),
@@ -68,10 +94,10 @@ internal sealed class SettingsView : UserControl
             BackColor = ShellTheme.Accent,
             Cursor = Cursors.Hand,
         };
-        _saveButton.FlatAppearance.BorderSize = 0;
-        _saveButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
-        _saveButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
-        _saveButton.Click += async (_, _) => await OnSaveClickedAsync();
+        _continueButton.FlatAppearance.BorderSize = 0;
+        _continueButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
+        _continueButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
+        _continueButton.Click += async (_, _) => await OnContinueClickedAsync();
 
         _feedbackLabel = new Label
         {
@@ -84,12 +110,13 @@ internal sealed class SettingsView : UserControl
             Visible = false,
         };
 
-        stack.Controls.Add(_saveButton);
+        stack.Controls.Add(_continueButton);
         stack.Controls.Add(_feedbackLabel);
 
         Controls.Add(stack);
 
-        Load += OnViewLoad;
+        FormClosing += OnFormClosing;
+        Load += OnFormLoad;
     }
 
     static Label MakeFieldLabel(string text) =>
@@ -115,27 +142,33 @@ internal sealed class SettingsView : UserControl
     static TextBox MakeWideTextBox() =>
         new()
         {
-            Width = 400,
+            Width = 460,
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
             BorderStyle = BorderStyle.FixedSingle,
         };
 
-    void OnViewLoad(object? sender, EventArgs e)
+    void OnFormLoad(object? sender, EventArgs e)
     {
-        Load -= OnViewLoad;
-        var s = AppSettingsStore.Load();
-        _entityIdTextBox.Text = s.EntityId ?? "";
-        _glpiUserTokenTextBox.Text = s.GlpiUserToken ?? "";
-        _groqApiKeyTextBox.Text = s.GroqApiKey ?? "";
+        Load -= OnFormLoad;
+        var settings = AppSettingsStore.Load();
+        _entityIdTextBox.Text = settings.EntityId ?? "";
+        _glpiUserTokenTextBox.Text = settings.GlpiUserToken ?? "";
+        _groqApiKeyTextBox.Text = settings.GroqApiKey ?? "";
     }
 
-    async Task OnSaveClickedAsync()
+    void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
-        _saveButton.Enabled = false;
+        if (_setupCompleted || e.CloseReason != CloseReason.UserClosing)
+            return;
+
+        DialogResult = DialogResult.Cancel;
+    }
+
+    async Task OnContinueClickedAsync()
+    {
+        _continueButton.Enabled = false;
         _feedbackLabel.Visible = false;
-        var host = FindForm();
-        if (host is not null)
-            host.UseWaitCursor = true;
+        UseWaitCursor = true;
         try
         {
             var merged = AppSettingsStore.Load();
@@ -148,22 +181,19 @@ internal sealed class SettingsView : UserControl
                 .ConfigureAwait(true);
 
             AppSettingsStore.Save(merged);
-            _feedbackLabel.Text = "Configurações salvas. A reiniciar a aplicação...";
-            _feedbackLabel.ForeColor = Color.FromArgb(22, 163, 74);
-            _feedbackLabel.Visible = true;
-            host?.Refresh();
-            Application.Restart();
+            _setupCompleted = true;
+            DialogResult = DialogResult.OK;
+            Close();
         }
         catch (Exception ex)
         {
             global::SistecHub.UserFacingErrorHelper.ShowErrorFromException(
-                host, ex, global::SistecHub.UserFacingErrorHelper.ValidationErrorTitle);
+                this, ex, global::SistecHub.UserFacingErrorHelper.ValidationErrorTitle);
         }
         finally
         {
-            _saveButton.Enabled = true;
-            if (host is not null)
-                host.UseWaitCursor = false;
+            _continueButton.Enabled = true;
+            UseWaitCursor = false;
         }
     }
 }
