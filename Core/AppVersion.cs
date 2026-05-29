@@ -6,5 +6,5 @@ namespace SistecHub.Core;
 public static class AppVersion
 {
     /// <summary>Versão atual em semver (ex.: "1.1.0"). Deve coincidir com Version no .csproj e com vpk pack --packVersion.</summary>
-    public const string Current = "1.3.0";
+    public const string Current = "1.4.0";
 }
