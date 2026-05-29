@@ -119,11 +119,17 @@ public static class UserFacingErrorHelper
             return "A ligação ao GLPI não está correta. A URL base do servidor deve estar configurada.";
         }
 
+        if (s.Contains("User token", StringComparison.OrdinalIgnoreCase) ||
+            s.Contains("Configure o User token", StringComparison.OrdinalIgnoreCase))
+        {
+            return s;
+        }
+
         if (s.Contains("App token e o User token", StringComparison.OrdinalIgnoreCase) ||
             (s.Contains("App token", StringComparison.OrdinalIgnoreCase) && s.Contains("User token", StringComparison.OrdinalIgnoreCase)))
         {
             return "São necessários o App token e o User token do GLPI. " +
-                "Crie os tokens no GLPI (em Configurar > Geral > API) e volte a colar aqui.";
+                "Confirme o user token e se a API REST está ativa no servidor.";
         }
 
         if (s.Contains("Não existe entidade com o id", StringComparison.OrdinalIgnoreCase) ||
@@ -144,24 +150,24 @@ public static class UserFacingErrorHelper
         {
             if (s.Contains("HTTP 401", StringComparison.OrdinalIgnoreCase) || s.Contains("HTTP 403", StringComparison.OrdinalIgnoreCase))
             {
-                return "O GLPI recusou o acesso (nome ou token incorreto). " +
-                    "Confirme o App token e o User token em Configurar → Geral → API no GLPI.";
+                return "O GLPI recusou o acesso (user token inválido ou API desativada). " +
+                    "Confirme o User token e se a API REST está ativa em Configurar → Geral → API.";
             }
             return "Não foi possível abrir sessão no GLPI. " +
-                "Verifique o App token, o User token e se a API REST está ativa no servidor.";
+                "Verifique o User token e se a API REST está ativa no servidor.";
         }
 
         if ((s.Contains("Falha na", StringComparison.OrdinalIgnoreCase) && s.Contains("HTTP 401", StringComparison.OrdinalIgnoreCase)) ||
             (s.Contains("HTTP 401", StringComparison.OrdinalIgnoreCase) && s.Contains("GLPI", StringComparison.OrdinalIgnoreCase)))
         {
-            return "O GLPI recusou o acesso: token inválido ou expirado. " +
-                "Gere tokens novos no GLPI e atualize a configuração.";
+            return "O GLPI recusou o acesso: user token inválido ou sessão expirada. " +
+                "Atualize o User token nas configurações.";
         }
 
         if (s.Contains("HTTP 403", StringComparison.OrdinalIgnoreCase) && s.Contains("GLPI", StringComparison.OrdinalIgnoreCase))
         {
             return "O GLPI recusou esta operação (sem permissão). " +
-                "Verifique o perfil do usuário associado ao User token.";
+                "Verifique o perfil associado ao User token no GLPI.";
         }
 
         if (s.Contains("consulta Entity", StringComparison.OrdinalIgnoreCase) ||
@@ -178,7 +184,7 @@ public static class UserFacingErrorHelper
             if (s.Contains("401", StringComparison.OrdinalIgnoreCase) || s.Contains("não autorizada", StringComparison.OrdinalIgnoreCase) || s.Contains("recusada", StringComparison.OrdinalIgnoreCase))
             {
                 return "A chave da API Groq foi recusada. " +
-                    "Crie ou copie uma chave válida em https://console.groq.com e coloque no campo da Groq (ou em GROQ_API_KEY).";
+                    "Verifique a configuração do plugin Groq SistecHub no GLPI.";
             }
             if (s.Contains("HTTP", StringComparison.OrdinalIgnoreCase))
             {
@@ -188,7 +194,14 @@ public static class UserFacingErrorHelper
 
         if (s.Contains("GROQ_API_KEY", StringComparison.OrdinalIgnoreCase) && s.Contains("Defina", StringComparison.OrdinalIgnoreCase))
         {
-            return "Indique a chave da API Groq no campo correspondente ou defina a variável de ambiente GROQ_API_KEY no Windows.";
+            return "Não foi possível obter a chave Groq. Configure o plugin Groq SistecHub no GLPI ou defina GROQ_API_KEY.";
+        }
+
+        if (s.Contains("plugin Groq", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("PluginGroqSistechubconfig", StringComparison.OrdinalIgnoreCase)
+            || s.Contains("configuração Groq", StringComparison.OrdinalIgnoreCase))
+        {
+            return s;
         }
 
         if (s.Contains("Resposta: {", StringComparison.OrdinalIgnoreCase) || s.Contains("Resposta: [", StringComparison.OrdinalIgnoreCase) ||

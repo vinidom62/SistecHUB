@@ -26,10 +26,23 @@ public sealed class ChamadosView : UserControl
     readonly Label _lastUpdateLabel;
     readonly Button _refreshButton;
     readonly Label[] _valueLabels;
-    readonly FlowLayoutPanel _stack;
+    readonly TableLayoutPanel _entityRow;
+    readonly FlowLayoutPanel _topStack;
+    readonly FlowLayoutPanel _recentTicketsList;
+    readonly Label _recentTicketsEmptyLabel;
+    readonly Panel _paginationPanel;
+    readonly Button _prevPageButton;
+    readonly Button _nextPageButton;
+    readonly Label _pageInfoLabel;
     readonly TableLayoutPanel _cardGrid;
     readonly Panel _belowCardsSection;
+    readonly Panel _contentRoot;
     readonly System.Windows.Forms.Timer _cooldownTimer;
+
+    const int TicketsPageSize = GlpiTicketPagination.DefaultPageSize;
+    int _currentTicketsPage = 1;
+    int _ticketsTotalCount;
+    bool _loadingTicketsPage;
 
     public ChamadosView()
     {
@@ -110,7 +123,7 @@ public sealed class ChamadosView : UserControl
         rightFlow.Controls.Add(_refreshButton);
         rightFlow.Controls.Add(_lastUpdateLabel);
 
-        var entityRow = new TableLayoutPanel
+        _entityRow = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             Height = 44,
@@ -120,12 +133,12 @@ public sealed class ChamadosView : UserControl
             Margin = new Padding(0, 0, 0, 12),
             Padding = new Padding(0),
         };
-        entityRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        _entityRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         // Coluna 0: largura pelo texto da entidade (evita largura 0 com duas Percent no FlowLayout).
-        entityRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        entityRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        entityRow.Controls.Add(_entityNameLabel, 0, 0);
-        entityRow.Controls.Add(rightFlow, 1, 0);
+        _entityRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        _entityRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        _entityRow.Controls.Add(_entityNameLabel, 0, 0);
+        _entityRow.Controls.Add(rightFlow, 1, 0);
 
         _valueLabels = new Label[StatusCardTitles.Length];
 
@@ -217,36 +230,110 @@ public sealed class ChamadosView : UserControl
         _belowCardsSection.Controls.Add(divider);
         _belowCardsSection.Controls.Add(meusChamadosRow);
 
-        _stack = new FlowLayoutPanel
+        _recentTicketsEmptyLabel = new Label
+        {
+            Text = "Nenhum chamado encontrado para esta entidade.",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextMuted,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 12, 0, 0),
+            Visible = false,
+        };
+
+        _recentTicketsList = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             AutoScroll = true,
             BackColor = Color.Transparent,
+            Padding = new Padding(0, 12, 0, 8),
         };
 
-        _stack.Controls.Add(title);
-        _stack.Controls.Add(entityRow);
-        _stack.Controls.Add(_cardGrid);
-        _stack.Controls.Add(_belowCardsSection);
-
-        void SyncCardGridWidth(object? sender, EventArgs e)
+        _prevPageButton = CreatePaginationButton("Anterior");
+        _nextPageButton = CreatePaginationButton("Próxima");
+        _pageInfoLabel = new Label
         {
-            var inner = Math.Max(1, _stack.ClientSize.Width - _stack.Padding.Horizontal);
-            entityRow.Width = inner;
-            _cardGrid.Width = inner;
-            _belowCardsSection.Width = inner;
-        }
+            Text = "",
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextMuted,
+            BackColor = Color.Transparent,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Margin = new Padding(12, 0, 12, 0),
+        };
 
-        _stack.Resize += SyncCardGridWidth;
+        _prevPageButton.Click += async (_, _) => await GoToTicketsPageAsync(_currentTicketsPage - 1).ConfigureAwait(true);
+        _nextPageButton.Click += async (_, _) => await GoToTicketsPageAsync(_currentTicketsPage + 1).ConfigureAwait(true);
+
+        var paginationRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0, 6, 0, 0),
+        };
+        paginationRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        paginationRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        paginationRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        paginationRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        paginationRow.Controls.Add(_prevPageButton, 0, 0);
+        paginationRow.Controls.Add(_pageInfoLabel, 1, 0);
+        paginationRow.Controls.Add(_nextPageButton, 2, 0);
+        _pageInfoLabel.Anchor = AnchorStyles.None;
+        _pageInfoLabel.Dock = DockStyle.Fill;
+        _pageInfoLabel.TextAlign = ContentAlignment.MiddleCenter;
+
+        _paginationPanel = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 48,
+            BackColor = Color.Transparent,
+            Visible = false,
+        };
+        _paginationPanel.Controls.Add(paginationRow);
+
+        _topStack = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoScroll = false,
+            BackColor = Color.Transparent,
+        };
+
+        _topStack.Controls.Add(title);
+        _topStack.Controls.Add(_entityRow);
+        _topStack.Controls.Add(_cardGrid);
+        _topStack.Controls.Add(_belowCardsSection);
+        _topStack.Controls.Add(_recentTicketsEmptyLabel);
+
+        var contentRoot = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.Transparent,
+        };
+        _contentRoot = contentRoot;
+        contentRoot.Controls.Add(_recentTicketsList);
+        contentRoot.Controls.Add(_paginationPanel);
+        contentRoot.Controls.Add(_topStack);
+
+        void SyncContentWidth(object? sender, EventArgs e) => SyncLayoutWidths();
+
+        contentRoot.Resize += SyncContentWidth;
+        _recentTicketsList.Resize += SyncContentWidth;
         Load += (_, _) =>
         {
-            SyncCardGridWidth(null, EventArgs.Empty);
+            SyncContentWidth(null, EventArgs.Empty);
             _ = OnInitialLoadAsync();
         };
 
-        Controls.Add(_stack);
+        Controls.Add(contentRoot);
     }
 
     async Task OnInitialLoadAsync()
@@ -261,6 +348,7 @@ public sealed class ChamadosView : UserControl
 
             if (ChamadosDataCache.TryGetForEntity(entityId, out var cached) && cached != null)
             {
+                _currentTicketsPage = 1;
                 ApplySnapshot(cached);
                 UpdateRefreshButtonState();
                 return;
@@ -274,6 +362,7 @@ public sealed class ChamadosView : UserControl
             _entityNameLabel.Text = "GLPI: " + global::SistecHub.UserFacingErrorHelper.FormatForUser(ex);
             _entityNameLabel.ForeColor = Color.FromArgb(220, 38, 38);
             SetValuesDash();
+            ClearRecentTickets();
         }
     }
 
@@ -337,10 +426,10 @@ public sealed class ChamadosView : UserControl
 
     async Task FetchAndCacheAsync(AppUserSettings settings, int entityId)
     {
-        var (info, counts) =
+        var (info, counts, ticketsPage) =
             await GlpiApiClient.GetEntityAndTicketCountsAsync(settings, entityId).ConfigureAwait(true);
 
-        var leaf = LeafEntityDisplayName(info);
+        var leaf = info.LeafDisplayName;
         var name = string.IsNullOrEmpty(leaf) ? info.Name.Trim() : leaf;
         if (string.IsNullOrWhiteSpace(name))
             name = "Entidade #" + entityId;
@@ -350,9 +439,12 @@ public sealed class ChamadosView : UserControl
             EntityId = entityId,
             EntityLeafName = name,
             Counts = counts,
+            TicketsTotalCount = ticketsPage.TotalCount,
+            RecentTickets = ticketsPage.Tickets,
             LoadedAtLocal = DateTime.Now,
         };
         ChamadosDataCache.SetSnapshot(snap);
+        _currentTicketsPage = 1;
         ApplySnapshot(snap);
     }
 
@@ -370,6 +462,145 @@ public sealed class ChamadosView : UserControl
         _valueLabels[2].Text = snap.Counts.Atribuidos.ToString();
         _valueLabels[3].Text = snap.Counts.EmAtendimentoPlanejado.ToString();
         _valueLabels[4].Text = snap.Counts.Fechados.ToString();
+
+        _ticketsTotalCount = snap.TicketsTotalCount;
+        RenderRecentTickets(snap.RecentTickets);
+        UpdatePaginationControls();
+    }
+
+    async Task GoToTicketsPageAsync(int page)
+    {
+        if (_loadingTicketsPage)
+            return;
+
+        var totalPages = GetTicketsTotalPages();
+        if (page < 1 || page > totalPages)
+            return;
+
+        if (!TryReadGlpiSettings(out var settings, out var entityId, out _))
+            return;
+
+        _loadingTicketsPage = true;
+        SetPaginationEnabled(false);
+        try
+        {
+            var ticketsPage = await GlpiApiClient
+                .GetTicketsPageAsync(settings, entityId, page - 1, TicketsPageSize)
+                .ConfigureAwait(true);
+
+            _currentTicketsPage = page;
+            _ticketsTotalCount = ticketsPage.TotalCount;
+            RenderRecentTickets(ticketsPage.Tickets);
+            UpdatePaginationControls();
+            _recentTicketsList.AutoScrollOffset = Point.Empty;
+        }
+        catch (Exception ex)
+        {
+            _entityNameLabel.Text = "GLPI: " + global::SistecHub.UserFacingErrorHelper.FormatForUser(ex);
+            _entityNameLabel.ForeColor = Color.FromArgb(220, 38, 38);
+        }
+        finally
+        {
+            _loadingTicketsPage = false;
+            UpdatePaginationControls();
+        }
+    }
+
+    int GetTicketsTotalPages()
+    {
+        if (_ticketsTotalCount <= 0)
+            return 1;
+        return (int)Math.Ceiling(_ticketsTotalCount / (double)TicketsPageSize);
+    }
+
+    void UpdatePaginationControls()
+    {
+        var totalPages = GetTicketsTotalPages();
+        var showPagination = _ticketsTotalCount > TicketsPageSize;
+        _paginationPanel.Visible = showPagination;
+
+        if (!showPagination)
+            return;
+
+        var from = (_currentTicketsPage - 1) * TicketsPageSize + 1;
+        var to = Math.Min(_currentTicketsPage * TicketsPageSize, _ticketsTotalCount);
+        _pageInfoLabel.Text = $"Página {_currentTicketsPage} de {totalPages}  ·  {from}–{to} de {_ticketsTotalCount}";
+
+        var canNavigate = !_loadingTicketsPage;
+        _prevPageButton.Enabled = canNavigate && _currentTicketsPage > 1;
+        _nextPageButton.Enabled = canNavigate && _currentTicketsPage < totalPages;
+    }
+
+    void SetPaginationEnabled(bool enabled)
+    {
+        _prevPageButton.Enabled = enabled && _currentTicketsPage > 1;
+        _nextPageButton.Enabled = enabled && _currentTicketsPage < GetTicketsTotalPages();
+    }
+
+    static Button CreatePaginationButton(string text)
+    {
+        var btn = new Button
+        {
+            Text = text,
+            AutoSize = true,
+            Height = 34,
+            Padding = new Padding(14, 0, 14, 0),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextPrimary,
+            BackColor = Color.White,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(0),
+        };
+        btn.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+        btn.FlatAppearance.BorderSize = 1;
+        btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(248, 250, 252);
+        return btn;
+    }
+
+    void RenderRecentTickets(IReadOnlyList<GlpiTicketSummary> tickets)
+    {
+        _recentTicketsList.SuspendLayout();
+        _recentTicketsList.Controls.Clear();
+
+        if (tickets.Count == 0)
+        {
+            _recentTicketsEmptyLabel.Visible = true;
+            _recentTicketsList.ResumeLayout(true);
+            return;
+        }
+
+        _recentTicketsEmptyLabel.Visible = false;
+        foreach (var ticket in tickets)
+            _recentTicketsList.Controls.Add(CreateTicketRow(ticket));
+
+        _recentTicketsList.ResumeLayout(true);
+        SyncLayoutWidths();
+    }
+
+    void SyncLayoutWidths()
+    {
+        var inner = Math.Max(1, _contentRoot.ClientSize.Width);
+        _entityRow.Width = inner;
+        _cardGrid.Width = inner;
+        _belowCardsSection.Width = inner;
+        _paginationPanel.Width = inner;
+
+        var listInner = Math.Max(1, _recentTicketsList.ClientSize.Width - _recentTicketsList.Padding.Horizontal);
+        if (_recentTicketsList.VerticalScroll.Visible)
+            listInner = Math.Max(1, listInner - SystemInformation.VerticalScrollBarWidth);
+
+        foreach (Control child in _recentTicketsList.Controls)
+            child.Width = listInner;
+    }
+
+    void ClearRecentTickets()
+    {
+        _recentTicketsList.Controls.Clear();
+        _recentTicketsEmptyLabel.Visible = false;
+        _ticketsTotalCount = 0;
+        _currentTicketsPage = 1;
+        _paginationPanel.Visible = false;
     }
 
     void ShowConfigError(string message)
@@ -378,6 +609,7 @@ public sealed class ChamadosView : UserControl
         _entityNameLabel.ForeColor = ShellTheme.TextMuted;
         _lastUpdateLabel.Text = "";
         SetValuesDash();
+        ClearRecentTickets();
         _refreshButton.Enabled = false;
     }
 
@@ -408,20 +640,6 @@ public sealed class ChamadosView : UserControl
     {
         foreach (var l in _valueLabels)
             l.Text = "—";
-    }
-
-    /// <summary>Último segmento do caminho da entidade (ex.: ignora "Sistec Sistemas > ").</summary>
-    static string LeafEntityDisplayName(GlpiEntityInfo info)
-    {
-        var full = info.DisplayName.Trim();
-        if (full.Length == 0)
-            return info.Name.Trim();
-
-        var idx = full.LastIndexOf('>');
-        if (idx < 0 || idx >= full.Length - 1)
-            return full;
-
-        return full[(idx + 1)..].Trim();
     }
 
     static (Panel Card, Label ValueLabel) CreateStatusCard(string cardTitle)
@@ -485,6 +703,123 @@ public sealed class ChamadosView : UserControl
 
         return (card, valueLbl);
     }
+
+    static Panel CreateTicketRow(GlpiTicketSummary ticket)
+    {
+        const int rowHeight = 56;
+        var row = new Panel
+        {
+            Height = rowHeight,
+            Margin = new Padding(0, 0, 0, 8),
+            BackColor = Color.White,
+            Padding = new Padding(14, 0, 14, 0),
+        };
+
+        var idLabel = new Label
+        {
+            Text = "#" + ticket.Id,
+            AutoSize = false,
+            Width = 56,
+            Dock = DockStyle.Left,
+            Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextMuted,
+            BackColor = Color.Transparent,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var titleLabel = new Label
+        {
+            Text = string.IsNullOrWhiteSpace(ticket.Title) ? "(sem título)" : ticket.Title.Trim(),
+            AutoSize = false,
+            AutoEllipsis = true,
+            Dock = DockStyle.Fill,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextPrimary,
+            BackColor = Color.Transparent,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var statusBadge = CreateStatusBadge(ticket.StatusLabel, ticket.Status);
+
+        row.Controls.Add(titleLabel);
+        row.Controls.Add(statusBadge);
+        row.Controls.Add(idLabel);
+
+        void RefreshChrome(object? sender, EventArgs e)
+        {
+            if (row.Width <= 0 || row.Height <= 0)
+                return;
+            ShellTheme.ApplyRoundedRegion(row, 8);
+            row.Invalidate();
+        }
+
+        row.SizeChanged += RefreshChrome;
+        RefreshChrome(null, EventArgs.Empty);
+
+        row.Paint += (_, e) =>
+        {
+            var rect = row.ClientRectangle;
+            rect.Inflate(-1, -1);
+            if (rect.Width < 8 || rect.Height < 8)
+                return;
+
+            using var path = CreateRoundedRectPath(rect, 8);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var pen = new Pen(Color.FromArgb(226, 232, 240));
+            e.Graphics.DrawPath(pen, path);
+        };
+
+        return row;
+    }
+
+    static Control CreateStatusBadge(string label, int status)
+    {
+        var (bg, fg) = GetStatusBadgeColors(status);
+        var badge = new Label
+        {
+            Text = label,
+            AutoSize = true,
+            MinimumSize = new Size(88, 26),
+            Padding = new Padding(12, 5, 12, 5),
+            BackColor = bg,
+            ForeColor = fg,
+            Font = new Font("Segoe UI", 8.75F, FontStyle.Bold, GraphicsUnit.Point),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Margin = new Padding(0),
+        };
+
+        void RefreshBadgeShape(object? sender, EventArgs e)
+        {
+            if (badge.Width <= 0 || badge.Height <= 0)
+                return;
+            ShellTheme.ApplyRoundedRegion(badge, 6);
+        }
+
+        badge.SizeChanged += RefreshBadgeShape;
+        RefreshBadgeShape(null, EventArgs.Empty);
+
+        var host = new Panel
+        {
+            AutoSize = true,
+            Dock = DockStyle.Right,
+            BackColor = Color.Transparent,
+            Padding = new Padding(12, 0, 0, 0),
+        };
+        host.Controls.Add(badge);
+        return host;
+    }
+
+    static (Color Background, Color Foreground) GetStatusBadgeColors(int status) =>
+        status switch
+        {
+            1 => (Color.FromArgb(22, 163, 74), Color.White),    // Novo — verde
+            2 => (Color.FromArgb(37, 99, 235), Color.White),    // Em atendimento — azul
+            3 => (Color.FromArgb(234, 88, 12), Color.White),    // Pausado — laranja
+            4 => (Color.FromArgb(217, 119, 6), Color.White),    // Pendente — âmbar
+            5 => (Color.FromArgb(124, 58, 237), Color.White),   // Resolvido — roxo
+            6 => (Color.FromArgb(100, 116, 139), Color.White),  // Fechado — cinza
+            _ => (Color.FromArgb(148, 163, 184), Color.White),
+        };
 
     static GraphicsPath CreateRoundedRectPath(Rectangle r, int radius)
     {

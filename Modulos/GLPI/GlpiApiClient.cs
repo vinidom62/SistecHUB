@@ -14,6 +14,23 @@ public sealed class GlpiEntityInfo
 
     public string DisplayName =>
         string.IsNullOrWhiteSpace(CompleteName) ? Name : CompleteName.Trim();
+
+    /// <summary>Último segmento do caminho da entidade (ex.: ignora "Sistec Sistemas &gt; ").</summary>
+    public string LeafDisplayName
+    {
+        get
+        {
+            var full = DisplayName.Trim();
+            if (full.Length == 0)
+                return Name.Trim();
+
+            var idx = full.LastIndexOf('>');
+            if (idx < 0 || idx >= full.Length - 1)
+                return full;
+
+            return full[(idx + 1)..].Trim();
+        }
+    }
 }
 
 /// <summary>Categoria ITIL (chamado) devolvida pelo GLPI para escolha via IA.</summary>
@@ -24,6 +41,9 @@ public static class GlpiApiClient
 {
     const string BaseUrl = "https://angelus.sisteconsultoria.com.br/angelus";
     const string AppToken = "HIdUB6NQVzatXVpLNlQCSZAUKtMhVQm97mRHErZ8";
+
+    /// <summary>Login GLPI da conta de serviço usada pela API.</summary>
+    public const string ServiceAccountLogin = "sistechub";
 
     static string NormalizeApiRoot(string? baseUrl)
     {
@@ -68,8 +88,8 @@ public static class GlpiApiClient
         }
     }
 
-    /// <summary>Uma sessão: carrega a entidade e as contagens de chamados por estado para essa entidade.</summary>
-    public static Task<(GlpiEntityInfo Entity, GlpiTicketCounts Counts)> GetEntityAndTicketCountsAsync(
+    /// <summary>Uma sessão: carrega a entidade, contagens por estado e a primeira página de chamados.</summary>
+    public static Task<(GlpiEntityInfo Entity, GlpiTicketCounts Counts, GlpiTicketListPage TicketsPage)> GetEntityAndTicketCountsAsync(
         AppUserSettings settings,
         int entityId,
         CancellationToken cancellationToken = default) =>
@@ -79,16 +99,47 @@ public static class GlpiApiClient
             {
                 var entity = await FetchEntityAsync(http, apiRoot, appToken, session, entityId, ct)
                     .ConfigureAwait(false);
-                var counts = await FetchTicketCountsForEntityAsync(
-                        http,
-                        apiRoot,
-                        appToken,
-                        session,
-                        entityId,
-                        ct)
-                    .ConfigureAwait(false);
-                return (entity, counts);
+                var countsTask = FetchTicketCountsForEntityAsync(
+                    http,
+                    apiRoot,
+                    appToken,
+                    session,
+                    entityId,
+                    ct);
+                var ticketsTask = FetchTicketsPageForEntityAsync(
+                    http,
+                    apiRoot,
+                    appToken,
+                    session,
+                    entityId,
+                    pageIndex: 0,
+                    pageSize: GlpiTicketPagination.DefaultPageSize,
+                    ct);
+                await Task.WhenAll(countsTask, ticketsTask).ConfigureAwait(false);
+                return (entity, await countsTask.ConfigureAwait(false), await ticketsTask.ConfigureAwait(false));
             },
+            cancellationToken);
+
+    /// <summary>Lista uma página de chamados da entidade (10 por página, ordenados do mais recente).</summary>
+    public static Task<GlpiTicketListPage> GetTicketsPageAsync(
+        AppUserSettings settings,
+        int entityId,
+        int pageIndex,
+        int pageSize = GlpiTicketPagination.DefaultPageSize,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithGlpiSessionAsync(
+            settings,
+            (http, apiRoot, appToken, session, ct) =>
+                FetchTicketsPageForEntityAsync(http, apiRoot, appToken, session, entityId, pageIndex, pageSize, ct),
+            cancellationToken);
+
+    /// <summary>Verifica se o user token permite abrir sessão na API REST do GLPI.</summary>
+    public static Task ValidateGlpiUserTokenAsync(
+        AppUserSettings settings,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithGlpiSessionAsync(
+            settings,
+            static (_, _, _, _, _) => Task.FromResult(true),
             cancellationToken);
 
     /// <summary>
@@ -105,6 +156,35 @@ public static class GlpiApiClient
 
         return GetEntityAndTicketCountsAsync(settings, eid, cancellationToken);
     }
+
+    /// <summary>Consulta apenas os dados da entidade no GLPI.</summary>
+    public static Task<GlpiEntityInfo> GetEntityAsync(
+        AppUserSettings settings,
+        int entityId,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithGlpiSessionAsync(
+            settings,
+            (http, apiRoot, appToken, session, ct) =>
+                FetchEntityAsync(http, apiRoot, appToken, session, entityId, ct),
+            cancellationToken);
+
+    /// <summary>Lista entidades acessíveis à sessão GLPI.</summary>
+    public static Task<IReadOnlyList<GlpiEntityInfo>> GetEntitiesAsync(
+        AppUserSettings settings,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithGlpiSessionAsync(
+            settings,
+            FetchAllEntitiesAsync,
+            cancellationToken);
+
+    /// <summary>Obtém a chave API Groq configurada no plugin <c>PluginGroqSistechubconfig</c>.</summary>
+    public static Task<string> GetGroqApiKeyFromPluginAsync(
+        AppUserSettings settings,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithGlpiSessionAsync(
+            settings,
+            FetchGroqApiKeyFromPluginAsync,
+            cancellationToken);
 
     /// <summary>Obtém o <c>id</c> do utilizador GLPI pelo login (<c>glpi_users.name</c>).</summary>
     public static Task<int?> GetUserIdByLoginAsync(
@@ -249,6 +329,240 @@ public static class GlpiApiClient
         var complete = root.TryGetProperty("completename", out var c) ? c.GetString() ?? "" : "";
 
         return new GlpiEntityInfo { Id = id, Name = name, CompleteName = complete };
+    }
+
+    static async Task<IReadOnlyList<GlpiEntityInfo>> FetchAllEntitiesAsync(
+        HttpClient http,
+        string apiRoot,
+        string appToken,
+        string sessionToken,
+        CancellationToken cancellationToken)
+    {
+        var list = new List<GlpiEntityInfo>();
+        const int pageSize = 200;
+
+        for (var start = 0; start < 10_000; start += pageSize)
+        {
+            var end = start + pageSize - 1;
+            var url = $"{apiRoot}/Entity?range={start}-{end}";
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            AddJsonContentType(req);
+            req.Headers.TryAddWithoutValidation("App-Token", appToken);
+            req.Headers.TryAddWithoutValidation("Session-Token", sessionToken);
+
+            using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            ThrowIfGlpiError(body, resp.IsSuccessStatusCode, (int)resp.StatusCode, "listar Entity");
+
+            var page = ParseEntityListJson(body);
+            if (page.Count == 0)
+                break;
+
+            list.AddRange(page);
+
+            if (page.Count < pageSize)
+                break;
+        }
+
+        return list
+            .Where(ShouldIncludeInEntityPicker)
+            .Select(FormatEntityForPicker)
+            .OrderBy(static e => e.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    const string EntityPickerRootPrefix = "Sistec Sistemas";
+
+    static bool ShouldIncludeInEntityPicker(GlpiEntityInfo entity) =>
+        !IsDescendantOfAvulsoClientsEntity(entity);
+
+    static bool IsDescendantOfAvulsoClientsEntity(GlpiEntityInfo entity)
+    {
+        var path = string.IsNullOrWhiteSpace(entity.CompleteName) ? entity.Name : entity.CompleteName;
+        var segments = path.Split('>', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        var avulsoIndex = -1;
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var segment = segments[i];
+            if (segment.Contains("avulso", StringComparison.OrdinalIgnoreCase)
+                && segment.Contains("xclient", StringComparison.OrdinalIgnoreCase))
+            {
+                avulsoIndex = i;
+                break;
+            }
+        }
+
+        return avulsoIndex >= 0 && avulsoIndex < segments.Length - 1;
+    }
+
+    static GlpiEntityInfo FormatEntityForPicker(GlpiEntityInfo entity)
+    {
+        var path = string.IsNullOrWhiteSpace(entity.CompleteName) ? entity.Name : entity.CompleteName;
+        var label = StripEntityPickerRootPrefix(path);
+
+        return new GlpiEntityInfo
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            CompleteName = label,
+        };
+    }
+
+    static string StripEntityPickerRootPrefix(string path)
+    {
+        var trimmed = path.Trim();
+        if (!trimmed.StartsWith(EntityPickerRootPrefix, StringComparison.OrdinalIgnoreCase))
+            return trimmed;
+
+        trimmed = trimmed[EntityPickerRootPrefix.Length..].TrimStart();
+        if (trimmed.StartsWith('>'))
+            trimmed = trimmed[1..].TrimStart();
+
+        return trimmed;
+    }
+
+    static async Task<string> FetchGroqApiKeyFromPluginAsync(
+        HttpClient http,
+        string apiRoot,
+        string appToken,
+        string sessionToken,
+        CancellationToken cancellationToken)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{apiRoot}/PluginGroqSistechubconfig/1");
+        AddJsonContentType(req);
+        req.Headers.TryAddWithoutValidation("App-Token", appToken);
+        req.Headers.TryAddWithoutValidation("Session-Token", sessionToken);
+
+        using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(
+                "Configuração Groq não encontrada no GLPI (plugin SistecHub).");
+        }
+
+        ThrowIfGlpiError(body, resp.IsSuccessStatusCode, (int)resp.StatusCode, "configuração Groq (plugin)");
+
+        var apiKey = TryExtractGroqApiKeyFromPluginJson(body);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException(
+                "O plugin Groq no GLPI não devolveu uma chave API válida.");
+        }
+
+        return apiKey.Trim();
+    }
+
+    static string? TryExtractGroqApiKeyFromPluginJson(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return FindGroqApiKeyInElement(doc.RootElement);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    static string? FindGroqApiKeyInElement(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.String)
+                    {
+                        var value = property.Value.GetString();
+                        if (LooksLikeGroqApiKey(value) && IsGroqKeyPropertyName(property.Name))
+                            return value;
+                    }
+                }
+
+                foreach (var property in element.EnumerateObject())
+                {
+                    var nested = FindGroqApiKeyInElement(property.Value);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                        return nested;
+                }
+
+                break;
+
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    var nested = FindGroqApiKeyInElement(item);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                        return nested;
+                }
+
+                break;
+        }
+
+        return null;
+    }
+
+    static bool IsGroqKeyPropertyName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        if (name.Contains("groq", StringComparison.OrdinalIgnoreCase)
+            && name.Contains("key", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return name.Equals("api_key", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("apikey", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("key", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static bool LooksLikeGroqApiKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var trimmed = value.Trim();
+        return trimmed.StartsWith("gsk_", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Length >= 20;
+    }
+
+    static List<GlpiEntityInfo> ParseEntityListJson(string body)
+    {
+        var result = new List<GlpiEntityInfo>();
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        JsonElement array;
+        if (root.ValueKind == JsonValueKind.Array)
+            array = root;
+        else if (root.ValueKind == JsonValueKind.Object
+                 && root.TryGetProperty("data", out var data)
+                 && data.ValueKind == JsonValueKind.Array)
+            array = data;
+        else
+            return result;
+
+        foreach (var el in array.EnumerateArray())
+        {
+            if (el.ValueKind != JsonValueKind.Object)
+                continue;
+
+            if (!el.TryGetProperty("id", out var idEl) || !idEl.TryGetInt32(out var id) || id < 1)
+                continue;
+
+            var name = el.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+            var complete = el.TryGetProperty("completename", out var c) ? c.GetString() ?? "" : "";
+
+            result.Add(new GlpiEntityInfo { Id = id, Name = name, CompleteName = complete });
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -433,6 +747,218 @@ public static class GlpiApiClient
         {
             /* ignorar */
         }
+
+        return null;
+    }
+
+    static async Task<GlpiTicketListPage> FetchTicketsPageForEntityAsync(
+        HttpClient http,
+        string apiRoot,
+        string appToken,
+        string sessionToken,
+        int entityId,
+        int pageIndex,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        pageIndex = Math.Max(0, pageIndex);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        var start = pageIndex * pageSize;
+        var end = start + pageSize - 1;
+
+        var url =
+            $"{apiRoot}/search/Ticket"
+            + "?criteria[0][link]=AND"
+            + "&criteria[0][itemtype]=Ticket"
+            + "&criteria[0][field]=80"
+            + "&criteria[0][searchtype]=under"
+            + $"&criteria[0][value]={entityId}"
+            + "&forcedisplay[0]=2"
+            + "&forcedisplay[1]=1"
+            + "&forcedisplay[2]=12"
+            + "&forcedisplay[3]=19"
+            + "&sort=19"
+            + "&order=DESC"
+            + "&is_deleted=0"
+            + $"&range={start}-{end}";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        AddJsonContentType(req);
+        req.Headers.TryAddWithoutValidation("App-Token", appToken);
+        req.Headers.TryAddWithoutValidation("Session-Token", sessionToken);
+
+        using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfGlpiError(body, resp.IsSuccessStatusCode, (int)resp.StatusCode, "listar chamados (Ticket)");
+
+        return ParseTicketSearchResponse(body);
+    }
+
+    static GlpiTicketListPage ParseTicketSearchResponse(string body)
+    {
+        var tickets = new List<GlpiTicketSummary>();
+        var totalCount = 0;
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("totalcount", out var totalEl))
+            totalCount = TryGetJsonInt32(totalEl) ?? 0;
+
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in data.EnumerateArray())
+            {
+                if (TryParseTicketSearchRow(row, out var ticket))
+                    tickets.Add(ticket);
+            }
+        }
+
+        return new GlpiTicketListPage(tickets, totalCount);
+    }
+
+    static bool TryParseTicketSearchRow(JsonElement row, out GlpiTicketSummary ticket)
+    {
+        ticket = default!;
+
+        int? id;
+        string title;
+        int status;
+        DateTime? openedAt;
+
+        // GLPI Ticket: 1 = título, 2 = id, 12 = status.
+        if (row.ValueKind == JsonValueKind.Object)
+        {
+            var field1Int = TryGetSearchFieldInt(row, 1);
+            var field2Int = TryGetSearchFieldInt(row, 2);
+            var field1Str = TryGetSearchFieldString(row, 1);
+            var field2Str = TryGetSearchFieldString(row, 2);
+
+            if (field2Int is > 0)
+            {
+                id = field2Int;
+                title = field1Str ?? "";
+            }
+            else if (field1Int is > 0)
+            {
+                id = field1Int;
+                title = field2Str ?? "";
+            }
+            else
+                return false;
+
+            status = TryGetSearchFieldStatus(row);
+            openedAt = TryGetSearchFieldDate(row, 19) ?? TryGetSearchFieldDate(row, 15);
+        }
+        else if (row.ValueKind == JsonValueKind.Array && row.GetArrayLength() >= 3)
+        {
+            id = TryGetJsonInt32(row[0]);
+            title = row[1].ValueKind == JsonValueKind.String ? row[1].GetString() ?? "" : row[1].ToString();
+            status = TryGetJsonInt32(row[2]) ?? 0;
+            openedAt = row.GetArrayLength() > 3 ? TryParseGlpiDateTime(row[3]) : null;
+        }
+        else
+            return false;
+
+        if (id is null or < 1)
+            return false;
+
+        ticket = new GlpiTicketSummary(id.Value, title.Trim(), status, openedAt);
+        return true;
+    }
+
+    static int? TryGetSearchFieldInt(JsonElement row, int fieldId)
+    {
+        if (!TryGetSearchFieldElement(row, fieldId, out var el))
+            return null;
+        return TryGetJsonInt32(el);
+    }
+
+    static string? TryGetSearchFieldString(JsonElement row, int fieldId)
+    {
+        if (!TryGetSearchFieldElement(row, fieldId, out var el))
+            return null;
+
+        return el.ValueKind switch
+        {
+            JsonValueKind.String => el.GetString(),
+            JsonValueKind.Number => el.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => el.ToString(),
+        };
+    }
+
+    static DateTime? TryGetSearchFieldDate(JsonElement row, int fieldId)
+    {
+        if (!TryGetSearchFieldElement(row, fieldId, out var el))
+            return null;
+        return TryParseGlpiDateTime(el);
+    }
+
+    static int TryGetSearchFieldStatus(JsonElement row)
+    {
+        if (!TryGetSearchFieldElement(row, 12, out var el))
+            return 0;
+
+        var asInt = TryGetJsonInt32(el);
+        if (asInt is > 0)
+            return asInt.Value;
+
+        if (el.ValueKind != JsonValueKind.String)
+            return 0;
+
+        var label = (el.GetString() ?? "").Trim();
+        return label.ToLowerInvariant() switch
+        {
+            "novo" or "new" => 1,
+            "atribuído" or "atribuido" or "assigned" or "processing (assigned)" => 2,
+            "planeado" or "planned" => 3,
+            "pendente" or "pending" or "waiting" or "em espera" => 4,
+            "resolvido" or "solved" => 5,
+            "fechado" or "closed" => 6,
+            _ => 0,
+        };
+    }
+
+    static bool TryGetSearchFieldElement(JsonElement row, int fieldId, out JsonElement el)
+    {
+        if (row.TryGetProperty(fieldId.ToString(), out el))
+            return true;
+
+        if (row.TryGetProperty("Ticket." + fieldId, out el))
+            return true;
+
+        el = default;
+        return false;
+    }
+
+    static int? TryGetJsonInt32(JsonElement el)
+    {
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n))
+            return n;
+        if (el.ValueKind == JsonValueKind.String && int.TryParse(el.GetString(), System.Globalization.NumberStyles.Integer, null, out var ns))
+            return ns;
+        return null;
+    }
+
+    static DateTime? TryParseGlpiDateTime(JsonElement el)
+    {
+        string? raw = el.ValueKind switch
+        {
+            JsonValueKind.String => el.GetString(),
+            JsonValueKind.Number => el.GetRawText(),
+            _ => null,
+        };
+
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        if (DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeLocal, out var dt))
+            return dt;
+
+        if (DateTime.TryParse(raw, out dt))
+            return dt;
 
         return null;
     }

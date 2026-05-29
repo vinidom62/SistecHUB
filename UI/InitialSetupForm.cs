@@ -1,21 +1,31 @@
 using SistecHub.Core;
+using SistecHub.Modulos.GLPI;
 
 namespace SistecHub.UI;
 
 internal sealed class InitialSetupForm : Form
 {
-    readonly TextBox _entityIdTextBox;
-    readonly TextBox _glpiUserTokenTextBox;
-    readonly TextBox _groqApiKeyTextBox;
-    readonly Button _continueButton;
-    readonly Label _feedbackLabel;
+    enum SetupStep
+    {
+        GlpiUserToken = 1,
+        EntityId = 2,
+    }
 
+    readonly Label _subtitle;
+    readonly Label _stepIndicator;
+    readonly Label _fieldLabel;
+    readonly TextBox _inputTextBox;
+    readonly ComboBox _entityComboBox;
+    readonly Button _continueButton;
+
+    SetupStep _step;
+    AppUserSettings _draftSettings = new();
     bool _setupCompleted;
 
     public InitialSetupForm()
     {
         Text = "SistecHub";
-        ClientSize = new Size(560, 520);
+        ClientSize = new Size(560, 320);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -49,9 +59,17 @@ internal sealed class InitialSetupForm : Form
             Margin = new Padding(0, 0, 0, 8),
         };
 
-        var subtitle = new Label
+        _stepIndicator = new Label
         {
-            Text = "Antes de usar o SistecHub, indique a entidade, o user token do GLPI e a chave da API Groq.",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextMuted,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 0, 0, 4),
+        };
+
+        _subtitle = new Label
+        {
             AutoSize = true,
             MaximumSize = new Size(460, 0),
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
@@ -60,30 +78,12 @@ internal sealed class InitialSetupForm : Form
             Margin = new Padding(0, 0, 0, 24),
         };
 
-        stack.Controls.Add(title);
-        stack.Controls.Add(subtitle);
-
-        stack.Controls.Add(MakeFieldLabel("Id da entidade (client id)"));
-        _entityIdTextBox = MakeWideTextBox();
-        stack.Controls.Add(_entityIdTextBox);
-
-        stack.Controls.Add(MakeSectionGap());
-
-        stack.Controls.Add(MakeFieldLabel("User token"));
-        _glpiUserTokenTextBox = MakeWideTextBox();
-        _glpiUserTokenTextBox.UseSystemPasswordChar = true;
-        stack.Controls.Add(_glpiUserTokenTextBox);
-
-        stack.Controls.Add(MakeSectionGap());
-
-        stack.Controls.Add(MakeFieldLabel("Chave API Groq"));
-        _groqApiKeyTextBox = MakeWideTextBox();
-        _groqApiKeyTextBox.UseSystemPasswordChar = true;
-        stack.Controls.Add(_groqApiKeyTextBox);
+        _fieldLabel = MakeFieldLabel("");
+        _inputTextBox = MakeWideTextBox();
+        _entityComboBox = MakeEntityComboBox();
 
         _continueButton = new Button
         {
-            Text = "Salvar e continuar",
             AutoSize = true,
             Height = 36,
             Padding = new Padding(16, 0, 16, 0),
@@ -99,19 +99,13 @@ internal sealed class InitialSetupForm : Form
         _continueButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
         _continueButton.Click += async (_, _) => await OnContinueClickedAsync();
 
-        _feedbackLabel = new Label
-        {
-            Text = "",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.FromArgb(22, 163, 74),
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 8, 0, 0),
-            Visible = false,
-        };
-
+        stack.Controls.Add(title);
+        stack.Controls.Add(_stepIndicator);
+        stack.Controls.Add(_subtitle);
+        stack.Controls.Add(_fieldLabel);
+        stack.Controls.Add(_inputTextBox);
+        stack.Controls.Add(_entityComboBox);
         stack.Controls.Add(_continueButton);
-        stack.Controls.Add(_feedbackLabel);
 
         Controls.Add(stack);
 
@@ -130,15 +124,6 @@ internal sealed class InitialSetupForm : Form
             Margin = new Padding(0, 12, 0, 6),
         };
 
-    static Panel MakeSectionGap() =>
-        new()
-        {
-            Height = 8,
-            Width = 1,
-            Margin = new Padding(0, 8, 0, 0),
-            BackColor = Color.Transparent,
-        };
-
     static TextBox MakeWideTextBox() =>
         new()
         {
@@ -147,13 +132,121 @@ internal sealed class InitialSetupForm : Form
             BorderStyle = BorderStyle.FixedSingle,
         };
 
-    void OnFormLoad(object? sender, EventArgs e)
+    static ComboBox MakeEntityComboBox() =>
+        new()
+        {
+            Width = 460,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            Visible = false,
+        };
+
+    async void OnFormLoad(object? sender, EventArgs e)
     {
         Load -= OnFormLoad;
-        var settings = AppSettingsStore.Load();
-        _entityIdTextBox.Text = settings.EntityId ?? "";
-        _glpiUserTokenTextBox.Text = settings.GlpiUserToken ?? "";
-        _groqApiKeyTextBox.Text = settings.GroqApiKey ?? "";
+        _draftSettings = AppSettingsStore.Load();
+
+        if (NeedsGroqSync(_draftSettings))
+        {
+            try
+            {
+                await FinishSetupAsync().ConfigureAwait(true);
+                return;
+            }
+            catch (Exception ex)
+            {
+                global::SistecHub.UserFacingErrorHelper.ShowErrorFromException(
+                    this, ex, global::SistecHub.UserFacingErrorHelper.ValidationErrorTitle);
+            }
+        }
+
+        _step = ResolveStartingStep(_draftSettings);
+        await ApplyStepToUiAsync().ConfigureAwait(true);
+    }
+
+    static SetupStep ResolveStartingStep(AppUserSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
+            return SetupStep.GlpiUserToken;
+
+        return SetupStep.EntityId;
+    }
+
+    static bool NeedsGroqSync(AppUserSettings settings)
+    {
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GROQ_API_KEY")))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(settings.GroqApiKey))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
+            return false;
+
+        return int.TryParse(settings.EntityId?.Trim(), out var entityId) && entityId >= 1;
+    }
+
+    async Task ApplyStepToUiAsync()
+    {
+        _stepIndicator.Text = $"Passo {(int)_step} de 2";
+        _inputTextBox.Visible = _step != SetupStep.EntityId;
+        _entityComboBox.Visible = _step == SetupStep.EntityId;
+
+        switch (_step)
+        {
+            case SetupStep.GlpiUserToken:
+                _subtitle.Text = "Indique o user token do GLPI para continuar.";
+                _fieldLabel.Text = "User token";
+                _inputTextBox.Text = _draftSettings.GlpiUserToken ?? "";
+                _inputTextBox.UseSystemPasswordChar = true;
+                _continueButton.Text = "Continuar";
+                _inputTextBox.SelectAll();
+                _inputTextBox.Focus();
+                break;
+
+            case SetupStep.EntityId:
+                _subtitle.Text = "Selecione a entidade no GLPI.";
+                _fieldLabel.Text = "Entidade";
+                _continueButton.Text = "Salvar e continuar";
+                await LoadEntityComboAsync().ConfigureAwait(true);
+                _entityComboBox.Focus();
+                break;
+        }
+    }
+
+    async Task LoadEntityComboAsync()
+    {
+        _continueButton.Enabled = false;
+        _entityComboBox.Enabled = false;
+        _entityComboBox.DataSource = null;
+        _entityComboBox.Items.Clear();
+        _entityComboBox.Items.Add("A carregar entidades...");
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            var entities = await GlpiApiClient.GetEntitiesAsync(_draftSettings, cts.Token).ConfigureAwait(true);
+
+            if (entities.Count == 0)
+            {
+                throw new InvalidOperationException("Não foram encontradas entidades acessíveis no GLPI.");
+            }
+
+            _entityComboBox.DataSource = entities.ToList();
+            _entityComboBox.DisplayMember = nameof(GlpiEntityInfo.DisplayName);
+            _entityComboBox.ValueMember = nameof(GlpiEntityInfo.Id);
+
+            if (int.TryParse(_draftSettings.EntityId?.Trim(), out var savedId))
+                _entityComboBox.SelectedValue = savedId;
+
+            if (_entityComboBox.SelectedIndex < 0 && _entityComboBox.Items.Count > 0)
+                _entityComboBox.SelectedIndex = 0;
+        }
+        finally
+        {
+            _entityComboBox.Enabled = true;
+            _continueButton.Enabled = true;
+        }
     }
 
     void OnFormClosing(object? sender, FormClosingEventArgs e)
@@ -167,23 +260,19 @@ internal sealed class InitialSetupForm : Form
     async Task OnContinueClickedAsync()
     {
         _continueButton.Enabled = false;
-        _feedbackLabel.Visible = false;
         UseWaitCursor = true;
         try
         {
-            var merged = AppSettingsStore.Load();
-            merged.EntityId = _entityIdTextBox.Text.Trim();
-            merged.GlpiUserToken = _glpiUserTokenTextBox.Text.Trim();
-            merged.GroqApiKey = _groqApiKeyTextBox.Text.Trim();
+            switch (_step)
+            {
+                case SetupStep.GlpiUserToken:
+                    await CompleteGlpiUserTokenStepAsync(_inputTextBox.Text.Trim()).ConfigureAwait(true);
+                    break;
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-            await global::SistecHub.AppConfigurationValidation.ValidateAllAsync(merged, cts.Token)
-                .ConfigureAwait(true);
-
-            AppSettingsStore.Save(merged);
-            _setupCompleted = true;
-            DialogResult = DialogResult.OK;
-            Close();
+                case SetupStep.EntityId:
+                    await CompleteEntityIdStepAsync().ConfigureAwait(true);
+                    break;
+            }
         }
         catch (Exception ex)
         {
@@ -196,4 +285,62 @@ internal sealed class InitialSetupForm : Form
             UseWaitCursor = false;
         }
     }
+
+    async Task CompleteGlpiUserTokenStepAsync(string userToken)
+    {
+        if (string.IsNullOrWhiteSpace(userToken))
+        {
+            throw new InvalidOperationException("Indique o user token do GLPI.");
+        }
+
+        _draftSettings.GlpiUserToken = userToken;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        await global::SistecHub.AppConfigurationValidation.ValidateGlpiUserTokenAsync(_draftSettings, cts.Token)
+            .ConfigureAwait(true);
+
+        AppSettingsStore.Save(_draftSettings);
+        _step = SetupStep.EntityId;
+        await ApplyStepToUiAsync().ConfigureAwait(true);
+    }
+
+    async Task CompleteEntityIdStepAsync()
+    {
+        var entityId = ResolveSelectedEntityId();
+        if (entityId < 1)
+        {
+            throw new InvalidOperationException("Selecione uma entidade.");
+        }
+
+        _draftSettings.EntityId = entityId.ToString();
+        await FinishSetupAsync().ConfigureAwait(true);
+    }
+
+    async Task FinishSetupAsync()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        await global::SistecHub.AppConfigurationValidation.ValidateAllAsync(_draftSettings, cts.Token)
+            .ConfigureAwait(true);
+
+        AppSettingsStore.Save(_draftSettings);
+        _setupCompleted = true;
+        DialogResult = DialogResult.OK;
+        Close();
+    }
+
+    static int ResolveSelectedEntityId(ComboBox comboBox)
+    {
+        if (comboBox.SelectedItem is GlpiEntityInfo entity)
+            return entity.Id;
+
+        if (comboBox.SelectedValue is int id)
+            return id;
+
+        if (comboBox.SelectedValue is string idText && int.TryParse(idText, out var parsed))
+            return parsed;
+
+        return 0;
+    }
+
+    int ResolveSelectedEntityId() => ResolveSelectedEntityId(_entityComboBox);
 }

@@ -1,4 +1,6 @@
 using SistecHub.Core;
+using SistecHub.Modulos.GLPI;
+using SistecHub.Modulos.GLPI.Chamados;
 
 namespace SistecHub.UI;
 
@@ -9,7 +11,7 @@ internal sealed class MainForm : Form
     readonly DoubleBufferedPanel _contentHost;
     readonly System.Windows.Forms.Timer _pageTransitionTimer;
     readonly Panel _sidebar;
-    readonly SidebarFooterNavItem _footerCliente;
+    readonly SidebarFooterEntityBadge _footerEntityBadge;
     readonly SidebarFooterNavItem _footerSettings;
     readonly FlowLayoutPanel _footerFlow;
     readonly IReadOnlyDictionary<string, IAppModule> _modulesById;
@@ -124,7 +126,7 @@ internal sealed class MainForm : Form
             menuFlow.Controls.Add(btn);
         }
 
-        _footerCliente = new SidebarFooterNavItem("\uE77B", "Cliente");
+        _footerEntityBadge = new SidebarFooterEntityBadge("\uE77B");
         _footerSettings = new SidebarFooterNavItem("\uE713", "Configurações");
 
         _footerFlow = new FlowLayoutPanel
@@ -137,7 +139,7 @@ internal sealed class MainForm : Form
             Padding = new Padding(8, 10, 8, 12),
         };
 
-        _footerFlow.Controls.Add(_footerCliente);
+        _footerFlow.Controls.Add(_footerEntityBadge);
         _footerFlow.Controls.Add(_footerSettings);
 
         var sidebarFooter = new Panel
@@ -151,7 +153,7 @@ internal sealed class MainForm : Form
         void SyncFooterItemWidths()
         {
             var w = Math.Max(0, _footerFlow.ClientSize.Width - _footerFlow.Padding.Horizontal);
-            _footerCliente.Width = w;
+            _footerEntityBadge.Width = w;
             _footerSettings.Width = w;
         }
 
@@ -166,8 +168,9 @@ internal sealed class MainForm : Form
         sidebarFooter.Resize += (_, _) => SyncFooterItemWidths();
         sidebarFooter.Controls.Add(_footerFlow);
 
-        _footerCliente.Click += (_, _) => ShowPage("client");
         _footerSettings.Click += (_, _) => ShowPage("settings");
+
+        ChamadosDataCache.SnapshotUpdated += OnChamadosSnapshotUpdated;
 
         _sidebar.Controls.Add(menuFlow);
         _sidebar.Controls.Add(sidebarFooter);
@@ -186,6 +189,7 @@ internal sealed class MainForm : Form
 
         FormClosed += (_, _) =>
         {
+            ChamadosDataCache.SnapshotUpdated -= OnChamadosSnapshotUpdated;
             _pageTransitionTimer.Dispose();
             _trayIcon.Dispose();
         };
@@ -206,6 +210,8 @@ internal sealed class MainForm : Form
         {
             SyncMenuButtonWidths();
             SyncFooterItemWidths();
+            RefreshFooterEntityName();
+            _ = PrefetchFooterEntityNameAsync();
             _ = AppUpdateService.CheckAndPromptAsync(this, silentIfUpToDate: true);
         };
         Load += OnMainFormLoad;
@@ -381,10 +387,49 @@ internal sealed class MainForm : Form
 
     void UpdateFooterSelection(string id)
     {
-        bool isClient = string.Equals(id, "client", StringComparison.OrdinalIgnoreCase);
         bool isSettings = string.Equals(id, "settings", StringComparison.OrdinalIgnoreCase);
-        _footerCliente.Selected = isClient;
         _footerSettings.Selected = isSettings;
+    }
+
+    void OnChamadosSnapshotUpdated() => RefreshFooterEntityName();
+
+    void RefreshFooterEntityName()
+    {
+        if (ChamadosDataCache.TryGetEntityDisplayName(out var name))
+            _footerEntityBadge.DisplayText = name;
+    }
+
+    async Task PrefetchFooterEntityNameAsync()
+    {
+        if (ChamadosDataCache.TryGetEntityDisplayName(out _))
+            return;
+
+        var settings = AppSettingsStore.Load();
+        if (!int.TryParse(settings.EntityId?.Trim(), out var entityId) || entityId < 1)
+            return;
+
+        if (ChamadosDataCache.TryGetForEntity(entityId, out var cached) && cached != null)
+        {
+            RefreshFooterEntityName();
+            return;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var entity = await GlpiApiClient.GetEntityAsync(settings, entityId, cts.Token).ConfigureAwait(true);
+            var name = entity.LeafDisplayName;
+            if (string.IsNullOrWhiteSpace(name))
+                name = entity.Name.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                name = "Entidade #" + entityId;
+
+            _footerEntityBadge.DisplayText = name;
+        }
+        catch
+        {
+            // Mantém o rodapé vazio se a consulta falhar; o cache será preenchido ao abrir Chamados.
+        }
     }
 
     UserControl CreatePage(string id)

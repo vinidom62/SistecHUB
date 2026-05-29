@@ -17,7 +17,7 @@ public static class ChamadoParaGLPI
     const int MaxPalavrasTituloIa = 8;
 
     /// <summary>Login GLPI do requerente dos chamados criados pelo SistecHub.</summary>
-    public const string LoginRequerenteGlpi = "sistechub";
+    public const string LoginRequerenteGlpi = GlpiApiClient.ServiceAccountLogin;
 
     const string PrefixoTitulo = "[SistecHub]";
 

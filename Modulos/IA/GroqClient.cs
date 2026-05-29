@@ -29,7 +29,7 @@ public static class GroqClient
 
     /// <summary>
     /// Obtém a chave: variável de ambiente <c>GROQ_API_KEY</c> tem prioridade sobre
-    /// <see cref="AppUserSettings.GroqApiKey"/> (valor guardado de forma protegida nas configurações).
+    /// <see cref="AppUserSettings.GroqApiKey"/> (sincronizada a partir do plugin GLPI).
     /// </summary>
     public static string ResolveApiKey(AppUserSettings settings)
     {
@@ -41,7 +41,7 @@ public static class GroqClient
             return settings.GroqApiKey.Trim();
 
         throw new InvalidOperationException(
-            "Defina a variável de ambiente GROQ_API_KEY ou a chave Groq nas configurações da aplicação.");
+            "Não foi possível obter a chave Groq. Configure o plugin Groq SistecHub no GLPI ou defina GROQ_API_KEY.");
     }
 
     /// <summary>Conclusão de chat com as mensagens indicadas.</summary>

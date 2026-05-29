@@ -18,7 +18,14 @@ internal static class SecureCredentialStore
     sealed class CredentialPayload
     {
         public string GlpiUserToken { get; set; } = "";
+
+        /// <summary>Legado: credenciais guardadas quando a app usava senha em vez de user token.</summary>
+        public string GlpiPassword { get; set; } = "";
+
         public string GroqApiKey { get; set; } = "";
+
+        public string ResolvedGlpiUserToken =>
+            !string.IsNullOrEmpty(GlpiUserToken) ? GlpiUserToken : GlpiPassword;
     }
 
     public static (string GlpiUserToken, string GroqApiKey) Load(string settingsDirectory)
@@ -28,10 +35,10 @@ internal static class SecureCredentialStore
             return ("", "");
 
         if (TryUnprotectFile(path, DataProtectionScope.LocalMachine, out var machinePayload))
-            return (machinePayload.GlpiUserToken, machinePayload.GroqApiKey);
+            return (machinePayload.ResolvedGlpiUserToken, machinePayload.GroqApiKey);
 
         if (TryUnprotectFile(path, DataProtectionScope.CurrentUser, out var userPayload))
-            return (userPayload.GlpiUserToken, userPayload.GroqApiKey);
+            return (userPayload.ResolvedGlpiUserToken, userPayload.GroqApiKey);
 
         return ("", "");
     }

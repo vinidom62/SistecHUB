@@ -8,9 +8,10 @@ public sealed class AppUserSettings
 {
     public string EntityId { get; set; } = "";
 
+    /// <summary>User token do GLPI para autenticação na API REST.</summary>
     public string GlpiUserToken { get; set; } = "";
 
-    /// <summary>Chave API Groq (variável de ambiente <c>GROQ_API_KEY</c> tem prioridade).</summary>
+    /// <summary>Chave API Groq (obtida do plugin GLPI; variável de ambiente <c>GROQ_API_KEY</c> tem prioridade).</summary>
     public string GroqApiKey { get; set; } = "";
 }
 
@@ -181,7 +182,8 @@ public static class AppSettingsStore
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            return root.TryGetProperty("glpiUserToken", out _)
+            return root.TryGetProperty("glpiPassword", out _)
+                || root.TryGetProperty("glpiUserToken", out _)
                 || root.TryGetProperty("groqApiKey", out _);
         }
         catch
@@ -201,7 +203,11 @@ public static class AppSettingsStore
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            var glpi = root.TryGetProperty("glpiUserToken", out var glpiEl) ? glpiEl.GetString()?.Trim() ?? "" : "";
+            var glpi = root.TryGetProperty("glpiUserToken", out var tokenEl)
+                ? tokenEl.GetString()?.Trim() ?? ""
+                : root.TryGetProperty("glpiPassword", out var passEl)
+                    ? passEl.GetString()?.Trim() ?? ""
+                    : "";
             var groq = root.TryGetProperty("groqApiKey", out var groqEl) ? groqEl.GetString()?.Trim() ?? "" : "";
             return (glpi, groq);
         }

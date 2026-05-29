@@ -1,14 +1,16 @@
 using SistecHub.Core;
+using SistecHub.Modulos.GLPI;
 
 namespace SistecHub.UI;
 
 internal sealed class SettingsView : UserControl
 {
-    readonly TextBox _entityIdTextBox;
+    readonly ComboBox _entityComboBox;
     readonly TextBox _glpiUserTokenTextBox;
-    readonly TextBox _groqApiKeyTextBox;
     readonly Button _saveButton;
     readonly Label _feedbackLabel;
+
+    int _persistedEntityId;
 
     public SettingsView()
     {
@@ -78,12 +80,6 @@ internal sealed class SettingsView : UserControl
         };
         stack.Controls.Add(checkUpdatesButton);
 
-        stack.Controls.Add(MakeFieldLabel("Id da entidade (client id)"));
-        _entityIdTextBox = MakeWideTextBox();
-        stack.Controls.Add(_entityIdTextBox);
-
-        stack.Controls.Add(MakeSectionGap());
-
         stack.Controls.Add(MakeFieldLabel("User token"));
         _glpiUserTokenTextBox = MakeWideTextBox();
         _glpiUserTokenTextBox.UseSystemPasswordChar = true;
@@ -91,10 +87,9 @@ internal sealed class SettingsView : UserControl
 
         stack.Controls.Add(MakeSectionGap());
 
-        stack.Controls.Add(MakeFieldLabel("Chave API Groq"));
-        _groqApiKeyTextBox = MakeWideTextBox();
-        _groqApiKeyTextBox.UseSystemPasswordChar = true;
-        stack.Controls.Add(_groqApiKeyTextBox);
+        stack.Controls.Add(MakeFieldLabel("Entidade"));
+        _entityComboBox = MakeEntityComboBox();
+        stack.Controls.Add(_entityComboBox);
 
         _saveButton = new Button
         {
@@ -161,13 +156,120 @@ internal sealed class SettingsView : UserControl
             BorderStyle = BorderStyle.FixedSingle,
         };
 
-    void OnViewLoad(object? sender, EventArgs e)
+    static ComboBox MakeEntityComboBox() =>
+        new()
+        {
+            Width = 400,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+        };
+
+    async void OnViewLoad(object? sender, EventArgs e)
     {
         Load -= OnViewLoad;
-        var s = AppSettingsStore.Load();
-        _entityIdTextBox.Text = s.EntityId ?? "";
-        _glpiUserTokenTextBox.Text = s.GlpiUserToken ?? "";
-        _groqApiKeyTextBox.Text = s.GroqApiKey ?? "";
+        var settings = AppSettingsStore.Load();
+        _glpiUserTokenTextBox.Text = settings.GlpiUserToken ?? "";
+        _persistedEntityId = ParseEntityId(settings.EntityId);
+        ApplySavedEntityPlaceholder();
+        await LoadEntityComboAsync(settings).ConfigureAwait(true);
+    }
+
+    static int ParseEntityId(string? entityId) =>
+        int.TryParse(entityId?.Trim(), out var parsed) && parsed >= 1 ? parsed : 0;
+
+    static GlpiEntityInfo MakeSavedEntityPlaceholder(int entityId) =>
+        new()
+        {
+            Id = entityId,
+            Name = $"Entidade #{entityId}",
+            CompleteName = $"Entidade #{entityId} (salva)",
+        };
+
+    void ApplySavedEntityPlaceholder()
+    {
+        if (_persistedEntityId < 1)
+        {
+            _entityComboBox.DataSource = null;
+            _entityComboBox.Items.Clear();
+            _entityComboBox.Items.Add("Nenhuma entidade configurada");
+            _entityComboBox.SelectedIndex = 0;
+            return;
+        }
+
+        BindEntityCombo([MakeSavedEntityPlaceholder(_persistedEntityId)], _persistedEntityId);
+    }
+
+    void BindEntityCombo(IReadOnlyList<GlpiEntityInfo> entities, int selectedEntityId)
+    {
+        _entityComboBox.DataSource = entities.ToList();
+        _entityComboBox.DisplayMember = nameof(GlpiEntityInfo.DisplayName);
+        _entityComboBox.ValueMember = nameof(GlpiEntityInfo.Id);
+
+        if (selectedEntityId >= 1)
+            _entityComboBox.SelectedValue = selectedEntityId;
+
+        if (_entityComboBox.SelectedIndex < 0 && _entityComboBox.Items.Count > 0)
+            _entityComboBox.SelectedIndex = 0;
+    }
+
+    async Task LoadEntityComboAsync(AppUserSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
+            return;
+
+        _entityComboBox.Enabled = false;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            var entities = await GlpiApiClient.GetEntitiesAsync(settings, cts.Token).ConfigureAwait(true);
+
+            if (entities.Count == 0)
+                return;
+
+            var list = entities.ToList();
+            if (_persistedEntityId >= 1 && list.All(e => e.Id != _persistedEntityId))
+                list.Insert(0, MakeSavedEntityPlaceholder(_persistedEntityId));
+
+            var selectedId = ResolveSelectedEntityId(_entityComboBox);
+            if (selectedId < 1)
+                selectedId = _persistedEntityId;
+
+            BindEntityCombo(list, selectedId);
+        }
+        catch
+        {
+            // Mantém a entidade salva visível quando o token ainda não permite listar entidades.
+        }
+        finally
+        {
+            _entityComboBox.Enabled = true;
+        }
+    }
+
+    static int ResolveSelectedEntityId(ComboBox comboBox)
+    {
+        if (comboBox.SelectedItem is GlpiEntityInfo entity)
+            return entity.Id;
+
+        if (comboBox.SelectedValue is int id)
+            return id;
+
+        if (comboBox.SelectedValue is string idText && int.TryParse(idText, out var parsed))
+            return parsed;
+
+        return 0;
+    }
+
+    int ResolveEntityIdForSave()
+    {
+        var entityId = ResolveSelectedEntityId(_entityComboBox);
+        if (entityId >= 1)
+            return entityId;
+
+        if (_persistedEntityId >= 1)
+            return _persistedEntityId;
+
+        return ParseEntityId(AppSettingsStore.Load().EntityId);
     }
 
     async Task OnSaveClickedAsync()
@@ -179,10 +281,16 @@ internal sealed class SettingsView : UserControl
             host.UseWaitCursor = true;
         try
         {
+            var entityId = ResolveEntityIdForSave();
+            if (entityId < 1)
+            {
+                throw new InvalidOperationException("Selecione uma entidade.");
+            }
+
             var merged = AppSettingsStore.Load();
-            merged.EntityId = _entityIdTextBox.Text.Trim();
+            merged.EntityId = entityId.ToString();
             merged.GlpiUserToken = _glpiUserTokenTextBox.Text.Trim();
-            merged.GroqApiKey = _groqApiKeyTextBox.Text.Trim();
+            _persistedEntityId = entityId;
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
             await global::SistecHub.AppConfigurationValidation.ValidateAllAsync(merged, cts.Token)

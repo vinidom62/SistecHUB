@@ -8,6 +8,8 @@ public sealed class ChamadosSnapshot
     public required int EntityId { get; init; }
     public required string EntityLeafName { get; init; }
     public required GlpiTicketCounts Counts { get; init; }
+    public required int TicketsTotalCount { get; init; }
+    public required IReadOnlyList<GlpiTicketSummary> RecentTickets { get; init; }
     public required DateTime LoadedAtLocal { get; init; }
 }
 
@@ -17,6 +19,9 @@ public static class ChamadosDataCache
     static readonly object Gate = new();
     static ChamadosSnapshot? _snapshot;
     static DateTime _nextRefreshAllowedUtc = DateTime.MinValue;
+
+    /// <summary>Disparado quando um novo snapshot é gravado no cache.</summary>
+    public static event Action? SnapshotUpdated;
 
     public static bool TryGetForEntity(int entityId, out ChamadosSnapshot? snapshot)
     {
@@ -39,6 +44,23 @@ public static class ChamadosDataCache
         {
             _snapshot = snapshot;
         }
+
+        SnapshotUpdated?.Invoke();
+    }
+
+    public static bool TryGetEntityDisplayName(out string displayName)
+    {
+        lock (Gate)
+        {
+            if (_snapshot != null && !string.IsNullOrWhiteSpace(_snapshot.EntityLeafName))
+            {
+                displayName = _snapshot.EntityLeafName.Trim();
+                return true;
+            }
+        }
+
+        displayName = "";
+        return false;
     }
 
     public static bool IsRefreshAllowed()
