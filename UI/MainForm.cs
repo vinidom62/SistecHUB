@@ -206,6 +206,7 @@ internal sealed class MainForm : Form
         {
             SyncMenuButtonWidths();
             SyncFooterItemWidths();
+            _ = AppUpdateService.CheckAndPromptAsync(this, silentIfUpToDate: true);
         };
         Load += OnMainFormLoad;
     }

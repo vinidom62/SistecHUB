@@ -1,13 +1,19 @@
 using SistecHub.Core;
 using SistecHub.UI;
+using Velopack;
 
 namespace SistecHub;
 
 static class Program
 {
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
+        VelopackApp.Build()
+            .SetArgs(args)
+            .SetAutoApplyOnStartup(false)
+            .Run();
+
         if (!SingleInstanceApp.TryEnterFirstInstance())
         {
             SingleInstanceApp.TryActivateExisting();

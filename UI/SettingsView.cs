@@ -37,6 +37,47 @@ internal sealed class SettingsView : UserControl
 
         stack.Controls.Add(title);
 
+        var versionLabel = new Label
+        {
+            Text = $"Versão: {AppUpdateService.DisplayVersion}",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextMuted,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 0, 0, 16),
+        };
+        stack.Controls.Add(versionLabel);
+
+        var checkUpdatesButton = new Button
+        {
+            Text = "Verificar atualizações",
+            AutoSize = true,
+            Height = 32,
+            Padding = new Padding(14, 0, 14, 0),
+            Margin = new Padding(0, 0, 0, 24),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextPrimary,
+            BackColor = Color.FromArgb(241, 245, 249),
+            Cursor = Cursors.Hand,
+        };
+        checkUpdatesButton.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
+        checkUpdatesButton.FlatAppearance.BorderSize = 1;
+        checkUpdatesButton.Click += async (_, _) =>
+        {
+            checkUpdatesButton.Enabled = false;
+            try
+            {
+                await AppUpdateService.CheckAndPromptAsync(FindForm(), silentIfUpToDate: false)
+                    .ConfigureAwait(true);
+            }
+            finally
+            {
+                checkUpdatesButton.Enabled = true;
+            }
+        };
+        stack.Controls.Add(checkUpdatesButton);
+
         stack.Controls.Add(MakeFieldLabel("Id da entidade (client id)"));
         _entityIdTextBox = MakeWideTextBox();
         stack.Controls.Add(_entityIdTextBox);
