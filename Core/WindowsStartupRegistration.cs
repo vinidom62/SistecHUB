@@ -27,9 +27,7 @@ internal static class WindowsStartupRegistration
         }
     }
 
-    static bool IsPerMachineInstall(string exePath) =>
-        exePath.Contains(@"\Program Files\", StringComparison.OrdinalIgnoreCase)
-        || exePath.Contains(@"\Program Files (x86)\", StringComparison.OrdinalIgnoreCase);
+    static bool IsPerMachineInstall(string exePath) => PerMachineUpdatePermissions.IsPerMachinePath(exePath);
 
     static void EnsureStartupShortcut(Environment.SpecialFolder startupFolder, string exePath)
     {

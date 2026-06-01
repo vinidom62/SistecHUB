@@ -12,7 +12,12 @@ static class Program
         VelopackApp.Build()
             .SetArgs(args)
             .SetAutoApplyOnStartup(false)
-            .OnAfterInstallFastCallback(_ => WindowsStartupRegistration.EnsureRegistered())
+            .OnAfterInstallFastCallback(_ =>
+            {
+                PerMachineUpdatePermissions.EnsureInstallFolderWritableForUpdates();
+                WindowsStartupRegistration.EnsureRegistered();
+            })
+            .OnAfterUpdateFastCallback(_ => PerMachineUpdatePermissions.EnsureInstallFolderWritableForUpdates())
             .Run();
 
         if (!SingleInstanceApp.TryEnterFirstInstance())
@@ -24,6 +29,7 @@ static class Program
         try
         {
             ApplicationConfiguration.Initialize();
+            PerMachineUpdatePermissions.EnsureInstallFolderWritableForUpdates();
             WindowsStartupRegistration.EnsureRegistered();
 
             if (!AppSettingsStore.IsInitialSetupComplete())

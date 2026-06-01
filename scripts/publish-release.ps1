@@ -1,5 +1,6 @@
 # Gera o instalador Velopack e publica no GitHub Releases.
 # Instalação para todos os utilizadores: usar o .msi (Program Files\Sistec\SistecHub).
+# O app concede escrita na pasta de instalação após o MSI para atualizar sem UAC repetido.
 # O Setup.exe continua a instalar só para o utilizador atual (%LocalAppData%).
 # Pré-requisitos: .NET SDK 8+, vpk 1.0.1 (dotnet tool install -g vpk --version 1.0.1)
 #
