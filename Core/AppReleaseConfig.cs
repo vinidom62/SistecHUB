@@ -10,5 +10,11 @@ public static class AppReleaseConfig
 
     public const string PackTitle = "SistecHub";
 
+    /// <summary>Editor no MSI; pasta em Program Files: <c>Program Files\{PackAuthors}\{PackTitle}</c>.</summary>
+    public const string PackAuthors = "Sistec";
+
     public const string MainExeName = "SistecHub.exe";
+
+    /// <summary>Atalhos do instalador; <c>Startup</c> inicia o app com o Windows.</summary>
+    public const string PackShortcuts = "Desktop,StartMenuRoot,Startup";
 }

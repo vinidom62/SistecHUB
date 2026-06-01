@@ -1,4 +1,6 @@
 # Gera o instalador Velopack e publica no GitHub Releases.
+# Instalação para todos os utilizadores: usar o .msi (Program Files\Sistec\SistecHub).
+# O Setup.exe continua a instalar só para o utilizador atual (%LocalAppData%).
 # Pré-requisitos: .NET SDK 8+, vpk 1.0.1 (dotnet tool install -g vpk --version 1.0.1)
 #
 # Uso:
@@ -36,10 +38,14 @@ $packArgs = @(
     "--packId", "Sistec.SistecHub",
     "--packVersion", $Version,
     "--packTitle", "SistecHub",
+    "--packAuthors", "Sistec",
     "--packDir", $PublishDir,
     "--mainExe", "SistecHub.exe",
     "--outputDir", $ReleasesDir,
-    "--icon", $Icon
+    "--icon", $Icon,
+    "--shortcuts", "Desktop,StartMenuRoot,Startup",
+    "--msi",
+    "--instLocation", "PerMachine"
 )
 & vpk @packArgs
 if ($LASTEXITCODE -ne 0) { throw "vpk pack falhou." }

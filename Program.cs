@@ -12,6 +12,7 @@ static class Program
         VelopackApp.Build()
             .SetArgs(args)
             .SetAutoApplyOnStartup(false)
+            .OnAfterInstallFastCallback(_ => WindowsStartupRegistration.EnsureRegistered())
             .Run();
 
         if (!SingleInstanceApp.TryEnterFirstInstance())
@@ -23,6 +24,7 @@ static class Program
         try
         {
             ApplicationConfiguration.Initialize();
+            WindowsStartupRegistration.EnsureRegistered();
 
             if (!AppSettingsStore.IsInitialSetupComplete())
             {
