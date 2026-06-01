@@ -32,6 +32,11 @@ Write-Host "Versão: $Version" -ForegroundColor Cyan
 Write-Host "Publicando (self-contained win-x64)..." -ForegroundColor Cyan
 dotnet publish $Csproj -c Release -r win-x64 --self-contained -o $PublishDir
 
+if (Test-Path $ReleasesDir) {
+    Write-Host "Limpando pasta Releases (evita misturar versões antigas no upload)..." -ForegroundColor Cyan
+    Remove-Item -Path (Join-Path $ReleasesDir "*") -Recurse -Force
+}
+
 Write-Host "Empacotando com Velopack..." -ForegroundColor Cyan
 $packArgs = @(
     "pack",
@@ -49,6 +54,19 @@ $packArgs = @(
 )
 & vpk @packArgs
 if ($LASTEXITCODE -ne 0) { throw "vpk pack falhou." }
+
+$ReleasesManifest = Join-Path $ReleasesDir "releases.win.json"
+if (-not (Test-Path $ReleasesManifest)) { throw "releases.win.json não foi gerado." }
+$manifest = Get-Content $ReleasesManifest -Raw | ConvertFrom-Json
+$packedVersions = @($manifest.Assets | ForEach-Object { $_.Version } | Select-Object -Unique)
+if ($packedVersions -notcontains $Version) {
+    throw @"
+O pacote gerado não corresponde à versão $Version.
+Versões no releases.win.json: $($packedVersions -join ', ')
+Confira Version no .csproj e se a pasta publish está atualizada.
+"@
+}
+Write-Host "Pacote Velopack OK: versão $Version" -ForegroundColor Green
 
 if ($SkipUpload) {
     Write-Host "Pacotes em: $ReleasesDir (upload ignorado)." -ForegroundColor Green

@@ -25,7 +25,19 @@ public static class AppUpdateService
         CancellationToken cancellationToken = default)
     {
         if (!IsUpdateSupported)
+        {
+            if (!silentIfUpToDate)
+            {
+                MessageBox.Show(
+                    owner,
+                    "Atualizações automáticas só funcionam quando o SistecHub foi instalado pelo instalador (.msi ou Setup.exe).\n\n"
+                    + "Se estiver a testar com dotnet run ou a copiar ficheiros manualmente, reinstale pela release no GitHub.",
+                    "Atualização",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
             return;
+        }
 
         if (Manager.UpdatePendingRestart is { } pending)
         {
@@ -65,7 +77,9 @@ public static class AppUpdateService
             {
                 MessageBox.Show(
                     owner,
-                    $"O SistecHub já está na versão mais recente ({DisplayVersion}).",
+                    $"O SistecHub já está na versão mais recente ({DisplayVersion}).\n\n"
+                    + "Se esperava uma versão nova, confira no GitHub se o .nupkg publicado tem a versão correta "
+                    + "(releases.win.json deve coincidir com a tag da release).",
                     "Atualização",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
