@@ -7,6 +7,8 @@ internal sealed class SettingsView : UserControl
 {
     readonly ComboBox _entityComboBox;
     readonly TextBox _glpiUserTokenTextBox;
+    readonly Label _updateStatusLabel;
+    readonly Button _installUpdateButton;
     readonly Button _saveButton;
     readonly Label _feedbackLabel;
 
@@ -50,9 +52,54 @@ internal sealed class SettingsView : UserControl
         };
         stack.Controls.Add(versionLabel);
 
-        var checkUpdatesButton = new Button
+        _updateStatusLabel = new Label
         {
-            Text = "Verificar atualizações",
+            Text = AppUpdateService.GetUpdateStatusText(),
+            AutoSize = true,
+            MaximumSize = new Size(400, 0),
+            Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextMuted,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 0, 0, 10),
+        };
+        stack.Controls.Add(_updateStatusLabel);
+
+        _installUpdateButton = new Button
+        {
+            Text = "Verificar actualização",
+            AutoSize = true,
+            Height = 36,
+            Padding = new Padding(16, 0, 16, 0),
+            Margin = new Padding(0, 0, 0, 24),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = Color.White,
+            BackColor = ShellTheme.Accent,
+            Cursor = Cursors.Hand,
+            Enabled = AppUpdateService.IsUpdateSupported,
+        };
+        _installUpdateButton.FlatAppearance.BorderSize = 0;
+        _installUpdateButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
+        _installUpdateButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
+        _installUpdateButton.Click += async (_, _) => await OnInstallUpdateClickedAsync();
+        stack.Controls.Add(_installUpdateButton);
+
+        if (!AppUpdateService.IsUpdateSupported)
+        {
+            stack.Controls.Add(new Label
+            {
+                Text = "Actualizações indisponíveis — use a instalação MSI.",
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point),
+                ForeColor = ShellTheme.TextMuted,
+                BackColor = Color.Transparent,
+                Margin = new Padding(0, 0, 0, 16),
+            });
+        }
+
+        var debugModeButton = new Button
+        {
+            Text = "Modo Debug",
             AutoSize = true,
             Height = 32,
             Padding = new Padding(14, 0, 14, 0),
@@ -63,22 +110,28 @@ internal sealed class SettingsView : UserControl
             BackColor = Color.FromArgb(241, 245, 249),
             Cursor = Cursors.Hand,
         };
-        checkUpdatesButton.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
-        checkUpdatesButton.FlatAppearance.BorderSize = 1;
-        checkUpdatesButton.Click += async (_, _) =>
+        debugModeButton.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
+        debugModeButton.FlatAppearance.BorderSize = 1;
+        debugModeButton.Click += (_, _) => DebugConsoleWindow.ShowOrActivate(FindForm());
+        stack.Controls.Add(debugModeButton);
+
+        var viewUpdateLogButton = new Button
         {
-            checkUpdatesButton.Enabled = false;
-            try
-            {
-                await AppUpdateService.CheckAndPromptAsync(FindForm(), silentIfUpToDate: false)
-                    .ConfigureAwait(true);
-            }
-            finally
-            {
-                checkUpdatesButton.Enabled = true;
-            }
+            Text = "Ver log de actualização",
+            AutoSize = true,
+            Height = 32,
+            Padding = new Padding(14, 0, 14, 0),
+            Margin = new Padding(0, 0, 0, 24),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextPrimary,
+            BackColor = Color.FromArgb(241, 245, 249),
+            Cursor = Cursors.Hand,
         };
-        stack.Controls.Add(checkUpdatesButton);
+        viewUpdateLogButton.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
+        viewUpdateLogButton.FlatAppearance.BorderSize = 1;
+        viewUpdateLogButton.Click += (_, _) => ShowUpdateLog();
+        stack.Controls.Add(viewUpdateLogButton);
 
         stack.Controls.Add(MakeFieldLabel("User token"));
         _glpiUserTokenTextBox = MakeWideTextBox();
@@ -128,6 +181,39 @@ internal sealed class SettingsView : UserControl
         Load += OnViewLoad;
     }
 
+    async Task OnInstallUpdateClickedAsync()
+    {
+        _installUpdateButton.Enabled = false;
+        var host = FindForm();
+        if (host is not null)
+            host.UseWaitCursor = true;
+        try
+        {
+            RefreshUpdateStatusLabel();
+            await AppUpdateService.CheckForUpdatesManuallyAsync(host).ConfigureAwait(true);
+        }
+        finally
+        {
+            RefreshUpdateStatusLabel();
+            _installUpdateButton.Enabled = AppUpdateService.IsUpdateSupported;
+            if (host is not null)
+                host.UseWaitCursor = false;
+        }
+    }
+
+    void RefreshUpdateStatusLabel() =>
+        _updateStatusLabel.Text = AppUpdateService.GetUpdateStatusText();
+
+    static void ShowUpdateLog()
+    {
+        var tail = UpdateActivityLog.ReadTail(50);
+        MessageBox.Show(
+            tail,
+            "Log de actualização (update.log)",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
+
     static Label MakeFieldLabel(string text) =>
         new()
         {
@@ -167,6 +253,7 @@ internal sealed class SettingsView : UserControl
     async void OnViewLoad(object? sender, EventArgs e)
     {
         Load -= OnViewLoad;
+        RefreshUpdateStatusLabel();
         var settings = AppSettingsStore.Load();
         _glpiUserTokenTextBox.Text = settings.GlpiUserToken ?? "";
         _persistedEntityId = ParseEntityId(settings.EntityId);

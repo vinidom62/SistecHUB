@@ -15,11 +15,21 @@
 
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
     <PackageReference Include="Velopack" Version="1.0.1" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" Link="Assets\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="SistecHub.Service\**" />
+    <EmbeddedResource Remove="SistecHub.Service\**" />
+    <None Remove="SistecHub.Service\**" />
+    <Compile Remove="SistecHub.ServiceSetup\**" />
+    <EmbeddedResource Remove="SistecHub.ServiceSetup\**" />
+    <None Remove="SistecHub.ServiceSetup\**" />
   </ItemGroup>
 
 </Project>

@@ -27,6 +27,7 @@ internal sealed class MainForm : Form
     {
         _modulesById = ModuleLoader.DiscoverModules()
             .ToDictionary(m => m.Id, StringComparer.OrdinalIgnoreCase);
+        AppDebugLog.Info("App", $"Módulos carregados: {string.Join(", ", _modulesById.Keys)}");
 
         Text = "SistecHub";
         ClientSize = new Size(1280, 720);
@@ -52,6 +53,8 @@ internal sealed class MainForm : Form
         trayMenu.Items.Add(trayClose);
         _trayIcon.ContextMenuStrip = trayMenu;
         _trayIcon.DoubleClick += (_, _) => ShowFromTray();
+
+        Shown += (_, _) => AppUpdateService.BeginAutomaticUpdateMonitoring(this);
 
         FormClosing += OnFormClosing;
 
@@ -212,7 +215,6 @@ internal sealed class MainForm : Form
             SyncFooterItemWidths();
             RefreshFooterEntityName();
             _ = PrefetchFooterEntityNameAsync();
-            _ = AppUpdateService.CheckAndPromptAsync(this, silentIfUpToDate: true);
         };
         Load += OnMainFormLoad;
     }
@@ -253,6 +255,8 @@ internal sealed class MainForm : Form
 
     void RequestExit()
     {
+        AppUpdateService.SignalApplyOnExit();
+
         _exitRequested = true;
         _trayIcon.Visible = false;
         Close();
@@ -275,6 +279,7 @@ internal sealed class MainForm : Form
 
         UpdateFooterSelection(id);
         _activePageId = id;
+        AppDebugLog.Debug("UI", $"Página activa: {id}");
 
         if (_pageTransitionTimer.Enabled)
         {

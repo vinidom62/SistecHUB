@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using SistecHub.Core;
 
 namespace SistecHub;
 
@@ -10,26 +11,23 @@ public static class UserFacingErrorHelper
 {
     public const string ValidationErrorTitle = "Não foi possível validar";
 
-    public static void ShowErrorFromException(IWin32Window? owner, Exception ex, string? title = null) =>
+    public static void ShowErrorFromException(IWin32Window? owner, Exception ex, string? title = null)
+    {
+        AppDebugLog.LogException("Erro", ex, title ?? ValidationErrorTitle);
         MessageBox.Show(
             owner,
             FormatForUser(ex),
             title ?? ValidationErrorTitle,
             MessageBoxButtons.OK,
             MessageBoxIcon.Warning);
+    }
 
     /// <summary>Texto seguro para o utilizador, sem jargão desnecessário.</summary>
     public static string FormatForUser(Exception ex)
     {
         ex = Unwrap(ex);
 
-        if (ex is OperationCanceledException)
-        {
-            return "A operação demorou demais (até 90 segundos) ou foi cancelada. " +
-                "Verifique a ligação à internet e tente de novo.";
-        }
-
-        if (ex is TaskCanceledException)
+        if (ex is OperationCanceledException or TaskCanceledException)
         {
             return "O pedido excedeu o tempo limite. Verifique a internet e tente de novo.";
         }

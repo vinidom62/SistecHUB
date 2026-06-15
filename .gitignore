@@ -1,5 +1,8 @@
-/bin
-/obj
+# Build / publish (qualquer projeto da solution)
+[Bb]in/
+[Oo]bj/
 /publish
 /Releases
 /.config
+/_inspect
+/_dl-test

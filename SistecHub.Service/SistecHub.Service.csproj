@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+
+
+  <PropertyGroup>
+
+    <TargetFramework>net8.0-windows</TargetFramework>
+
+    <Nullable>enable</Nullable>
+
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <RootNamespace>SistecHub.Service</RootNamespace>
+
+    <AssemblyName>SistecHub.Service</AssemblyName>
+
+    <Version>1.6.0</Version>
+
+  </PropertyGroup>
+
+
+
+  <ItemGroup>
+
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+
+    <PackageReference Include="Velopack" Version="1.0.1" />
+
+  </ItemGroup>
+
+
+
+  <ItemGroup>
+
+    <Compile Include="..\Core\AppReleaseConfig.cs" Link="Shared\AppReleaseConfig.cs" />
+
+    <Compile Include="..\Core\AppVersion.cs" Link="Shared\AppVersion.cs" />
+
+    <Compile Include="..\Core\PerMachineUpdatePermissions.cs" Link="Shared\PerMachineUpdatePermissions.cs" />
+
+    <Compile Include="..\Core\SharedMachineStorage.cs" Link="Shared\SharedMachineStorage.cs" />
+
+    <Compile Include="..\Core\FileSystemAclHelper.cs" Link="Shared\FileSystemAclHelper.cs" />
+
+    <Compile Include="..\Core\WindowsServiceConfig.cs" Link="Shared\WindowsServiceConfig.cs" />
+
+    <Compile Include="..\Core\ServiceLogWriter.cs" Link="Shared\ServiceLogWriter.cs" />
+
+    <Compile Include="..\Core\SistecHubAppProcess.cs" Link="Shared\SistecHubAppProcess.cs" />
+
+    <Compile Include="..\Core\UpdateServiceCoordinator.cs" Link="Shared\UpdateServiceCoordinator.cs" />
+
+    <Compile Include="..\Core\UpdateActivityLog.cs" Link="Shared\UpdateActivityLog.cs" />
+
+    <Compile Include="..\Core\VelopackUpdateEngine.cs" Link="Shared\VelopackUpdateEngine.cs" />
+
+    <Compile Include="..\Core\VelopackInstallLocator.cs" Link="Shared\VelopackInstallLocator.cs" />
+
+  </ItemGroup>
+
+
+
+</Project>
+

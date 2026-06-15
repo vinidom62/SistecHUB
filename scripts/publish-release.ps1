@@ -1,7 +1,7 @@
 # Gera o instalador Velopack e publica no GitHub Releases.
 # Instalação para todos os utilizadores: usar o .msi (Program Files\Sistec\SistecHub).
-# O app concede escrita na pasta de instalação após o MSI para atualizar sem UAC repetido.
-# O Setup.exe continua a instalar só para o utilizador atual (%LocalAppData%).
+# O MSI regista automaticamente o serviço Windows SistecHubService.
+# Actualizações automáticas via serviço (verificação ao abrir o app); logs em ProgramData\SistecHub\.
 # Pré-requisitos: .NET SDK 8+, vpk 1.0.1 (dotnet tool install -g vpk --version 1.0.1)
 #
 # Uso:
@@ -19,6 +19,8 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Csproj = Join-Path $Root "SistecHub.csproj"
+$ServiceCsproj = Join-Path $Root "SistecHub.Service\SistecHub.Service.csproj"
+$ServiceSetupCsproj = Join-Path $Root "SistecHub.ServiceSetup\SistecHub.ServiceSetup.csproj"
 $PublishDir = Join-Path $Root "publish"
 $ReleasesDir = Join-Path $Root "Releases"
 $Icon = Join-Path $Root "Assets\app.ico"
@@ -30,8 +32,14 @@ if (-not $Version) { throw "Não foi possível ler a versão do projeto." }
 
 Write-Host "Versão: $Version" -ForegroundColor Cyan
 
-Write-Host "Publicando (self-contained win-x64)..." -ForegroundColor Cyan
+Write-Host "Publicando app (self-contained win-x64)..." -ForegroundColor Cyan
 dotnet publish $Csproj -c Release -r win-x64 --self-contained -o $PublishDir
+
+Write-Host "Publicando serviço Windows (self-contained win-x64)..." -ForegroundColor Cyan
+dotnet publish $ServiceCsproj -c Release -r win-x64 --self-contained -o $PublishDir
+
+Write-Host "Publicando utilitário de serviço (self-contained win-x64)..." -ForegroundColor Cyan
+dotnet publish $ServiceSetupCsproj -c Release -r win-x64 --self-contained -o $PublishDir
 
 if (Test-Path $ReleasesDir) {
     Write-Host "Limpando pasta Releases (evita misturar versões antigas no upload)..." -ForegroundColor Cyan

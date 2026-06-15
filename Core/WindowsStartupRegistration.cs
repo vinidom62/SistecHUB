@@ -2,7 +2,7 @@ using Velopack.Windows;
 
 namespace SistecHub.Core;
 
-/// <summary>Garante que o SistecHub inicia automaticamente quando o Windows inicia.</summary>
+/// <summary>Garante que o SistecHub inicia automaticamente quando o Windows inicia (MSI / Program Files).</summary>
 internal static class WindowsStartupRegistration
 {
     public static void EnsureRegistered()
@@ -16,18 +16,13 @@ internal static class WindowsStartupRegistration
 
         try
         {
-            var startupFolder = IsPerMachineInstall(exePath)
-                ? Environment.SpecialFolder.CommonStartup
-                : Environment.SpecialFolder.Startup;
-            EnsureStartupShortcut(startupFolder, exePath);
+            EnsureStartupShortcut(Environment.SpecialFolder.CommonStartup, exePath);
         }
         catch
         {
             // Melhor esforço: falha não impede o app de iniciar.
         }
     }
-
-    static bool IsPerMachineInstall(string exePath) => PerMachineUpdatePermissions.IsPerMachinePath(exePath);
 
     static void EnsureStartupShortcut(Environment.SpecialFolder startupFolder, string exePath)
     {

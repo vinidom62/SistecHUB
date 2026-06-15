@@ -1,129 +1,238 @@
-using Velopack;
-using Velopack.Sources;
-
 namespace SistecHub.Core;
 
-/// <summary>Verificação e instalação de atualizações via Velopack (GitHub Releases).</summary>
+/// <summary>Verificação e instalação de actualizações via serviço Windows (instalação MSI).</summary>
 public static class AppUpdateService
 {
-    static UpdateManager? _manager;
+    static readonly object NotifySync = new();
+    static string? _notifiedVersion;
+    static bool _monitorRunning;
 
-    static UpdateManager Manager => _manager ??= new UpdateManager(
-        new GithubSource(AppReleaseConfig.GitHubRepoUrl, accessToken: null, prerelease: false));
+    public static bool IsUpdateSupported => VelopackUpdateEngine.IsInstalled;
 
-    /// <summary>True quando o app foi instalado pelo instalador Velopack (não em debug direto).</summary>
-    public static bool IsUpdateSupported => Manager.IsInstalled;
+    public static string DisplayVersion => VelopackUpdateEngine.DisplayVersion;
 
-    public static string DisplayVersion =>
-        IsUpdateSupported && Manager.CurrentVersion is { } v
-            ? v.ToString()
-            : AppVersion.Current;
+    public static string GetUpdateStatusText()
+    {
+        var statusText = UpdateServiceCoordinator.DescribeStatusForUi(UpdateServiceCoordinator.TryReadStatus());
+        return statusText + Environment.NewLine + $"Log: {UpdateActivityLog.LogFilePath}";
+    }
 
-    public static async Task CheckAndPromptAsync(
+    /// <summary>Verificação automática ao abrir o aplicativo (sem diálogos excepto update pronta).</summary>
+    public static void BeginAutomaticUpdateMonitoring(IWin32Window? owner)
+    {
+        if (!IsUpdateSupported)
+            return;
+
+        UpdateActivityLog.Info("Update", "Verificação automática solicitada.");
+        UpdateServiceCoordinator.RequestImmediateCheck();
+        StartBackgroundMonitor(owner, manualFlow: false);
+    }
+
+    /// <summary>Verificação manual iniciada nas Configurações.</summary>
+    public static async Task CheckForUpdatesManuallyAsync(
         IWin32Window? owner,
-        bool silentIfUpToDate,
         CancellationToken cancellationToken = default)
     {
         if (!IsUpdateSupported)
         {
-            if (!silentIfUpToDate)
-            {
-                MessageBox.Show(
-                    owner,
-                    "Atualizações automáticas só funcionam quando o SistecHub foi instalado pelo instalador (.msi ou Setup.exe).\n\n"
-                    + "Se estiver a testar com dotnet run ou a copiar ficheiros manualmente, reinstale pela release no GitHub.",
-                    "Atualização",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-            }
-            return;
-        }
-
-        if (Manager.UpdatePendingRestart is { } pending)
-        {
-            var pendingAnswer = MessageBox.Show(
+            MessageBox.Show(
                 owner,
-                "Há uma atualização pronta para instalar. Reiniciar o SistecHub agora?",
-                "Atualização pendente",
-                MessageBoxButtons.YesNo,
+                "Actualizações só estão disponíveis na instalação MSI (Program Files).",
+                "Verificar actualização",
+                MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
-            if (pendingAnswer == DialogResult.Yes)
-                Manager.ApplyUpdatesAndRestart(pending);
             return;
         }
 
-        UpdateInfo? update;
-        try
+        UpdateActivityLog.Info("Update", "Utilizador clicou em «Verificar actualização».");
+        UpdateServiceCoordinator.RequestImmediateCheck();
+        await WaitForCheckResultAsync(owner, cancellationToken).ConfigureAwait(true);
+    }
+
+    static void StartBackgroundMonitor(IWin32Window? owner, bool manualFlow)
+    {
+        lock (NotifySync)
         {
-            update = await Manager.CheckForUpdatesAsync().ConfigureAwait(true);
+            if (_monitorRunning)
+                return;
+            _monitorRunning = true;
         }
-        catch (Exception ex)
+
+        _ = Task.Run(async () =>
         {
-            if (!silentIfUpToDate)
+            try
             {
-                MessageBox.Show(
-                    owner,
-                    $"Não foi possível verificar atualizações.\n\n{ex.Message}",
-                    "Atualização",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                await MonitorUntilSettledAsync(owner, manualFlow, TimeSpan.FromMinutes(10), CancellationToken.None)
+                    .ConfigureAwait(false);
             }
-            return;
-        }
-
-        if (update is null)
-        {
-            if (!silentIfUpToDate)
+            catch (Exception ex)
             {
-                MessageBox.Show(
-                    owner,
-                    $"O SistecHub já está na versão mais recente ({DisplayVersion}).\n\n"
-                    + "Se esperava uma versão nova, confira no GitHub se o .nupkg publicado tem a versão correta "
-                    + "(releases.win.json deve coincidir com a tag da release).",
-                    "Atualização",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                UpdateActivityLog.LogException("Update", ex, "Monitor automático de actualização falhou.");
             }
-            return;
-        }
+            finally
+            {
+                lock (NotifySync)
+                    _monitorRunning = false;
+            }
+        });
+    }
 
-        var newVersion = update.TargetFullRelease.Version.ToString();
-        var answer = MessageBox.Show(
-            owner,
-            $"Está disponível a versão {newVersion}.\nVersão instalada: {DisplayVersion}.\n\nDeseja baixar e instalar agora?",
-            "Atualização disponível",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Information);
-        if (answer != DialogResult.Yes)
-            return;
+    static async Task WaitForCheckResultAsync(IWin32Window? owner, CancellationToken cancellationToken)
+    {
+        var result = await MonitorUntilSettledAsync(owner, manualFlow: true, TimeSpan.FromMinutes(3), cancellationToken)
+            .ConfigureAwait(true);
 
-        try
-        {
-            await Manager.DownloadUpdatesAsync(update, progress: null, cancelToken: cancellationToken)
-                .ConfigureAwait(true);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        catch (Exception ex)
+        if (result == MonitorResult.TimedOut)
         {
             MessageBox.Show(
                 owner,
-                $"Falha ao baixar a atualização.\n\n{ex.Message}",
-                "Atualização",
+                "A verificação demorou demais.\n\n"
+                + "Confirme que «SistecHub Service» está em execução.\n\n"
+                + "Log: " + UpdateActivityLog.LogFilePath,
+                "Verificar actualização",
                 MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+                MessageBoxIcon.Warning);
+        }
+    }
+
+    enum MonitorResult
+    {
+        Settled,
+        TimedOut,
+    }
+
+    static async Task<MonitorResult> MonitorUntilSettledAsync(
+        IWin32Window? owner,
+        bool manualFlow,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        UpdateServicePhase? lastPhase = UpdateServiceCoordinator.TryReadStatus()?.Phase;
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+
+            var status = UpdateServiceCoordinator.TryReadStatus();
+            if (status?.Phase != lastPhase && status is not null)
+            {
+                UpdateActivityLog.Info("Update", $"Progresso: {status.Phase} — {status.Message}");
+                lastPhase = status.Phase;
+            }
+
+            if (IsUpdateReadyToApply())
+            {
+                NotifyUpdateReadyIfNeeded(owner, manualFlow);
+                return MonitorResult.Settled;
+            }
+
+            if (status?.Phase == UpdateServicePhase.UpToDate)
+            {
+                if (manualFlow)
+                {
+                    MessageBox.Show(
+                        owner,
+                        $"O SistecHub já está na versão mais recente ({DisplayVersion}).",
+                        "Verificar actualização",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+
+                return MonitorResult.Settled;
+            }
+
+            if (status?.Phase == UpdateServicePhase.Error)
+            {
+                if (manualFlow)
+                {
+                    MessageBox.Show(
+                        owner,
+                        status.Message + "\n\nDetalhes em:\n" + UpdateActivityLog.LogFilePath,
+                        "Verificar actualização",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+
+                return MonitorResult.Settled;
+            }
+        }
+
+        if (IsUpdateReadyToApply())
+        {
+            NotifyUpdateReadyIfNeeded(owner, manualFlow);
+            return MonitorResult.Settled;
+        }
+
+        return manualFlow ? MonitorResult.TimedOut : MonitorResult.Settled;
+    }
+
+    static bool IsUpdateReadyToApply() =>
+        VelopackUpdateEngine.PendingRestart is not null
+        || UpdateServiceCoordinator.TryReadStatus()?.Phase == UpdateServicePhase.PendingAppClose;
+
+    static void NotifyUpdateReadyIfNeeded(IWin32Window? owner, bool manualFlow)
+    {
+        var version = VelopackUpdateEngine.PendingRestart?.Version.ToString()
+            ?? UpdateServiceCoordinator.TryReadStatus()?.AvailableVersion;
+
+        if (string.IsNullOrWhiteSpace(version))
+            return;
+
+        lock (NotifySync)
+        {
+            if (string.Equals(_notifiedVersion, version, StringComparison.Ordinal))
+                return;
+            _notifiedVersion = version;
+        }
+
+        UpdateActivityLog.Info("Update", $"Actualização {version} pronta — UI aberta, aguarda fecho do app.");
+
+        var message = manualFlow
+            ? $"A versão {version} está pronta.\n\nSerá instalada automaticamente ao fechar o SistecHub."
+            : $"Foi encontrada a versão {version}.\n\n"
+              + "A actualização será instalada automaticamente ao fechar o SistecHub.";
+
+        if (owner is null)
+        {
+            UpdateActivityLog.Info("Update", message.Replace('\n', ' '));
             return;
         }
 
-        var restart = MessageBox.Show(
+        try
+        {
+            if (owner is Control { InvokeRequired: true } control)
+            {
+                control.BeginInvoke(() => ShowUpdateReadyMessage(owner, message, manualFlow));
+                return;
+            }
+
+            ShowUpdateReadyMessage(owner, message, manualFlow);
+        }
+        catch (Exception ex)
+        {
+            UpdateActivityLog.LogException("Update", ex, "Falha ao mostrar aviso de actualização pronta.");
+        }
+    }
+
+    static void ShowUpdateReadyMessage(IWin32Window? owner, string message, bool manualFlow)
+    {
+        MessageBox.Show(
             owner,
-            "Download concluído. Reiniciar agora para aplicar a atualização?",
-            "Atualização",
-            MessageBoxButtons.YesNo,
+            message,
+            manualFlow ? "Verificar actualização" : "Actualização disponível",
+            MessageBoxButtons.OK,
             MessageBoxIcon.Information);
-        if (restart == DialogResult.Yes)
-            Manager.ApplyUpdatesAndRestart(update);
+    }
+
+    /// <summary>Chamado ao fechar o app quando há update pendente — o serviço instala em silêncio.</summary>
+    public static void SignalApplyOnExit()
+    {
+        if (!IsUpdateSupported || !IsUpdateReadyToApply())
+            return;
+
+        UpdateServiceCoordinator.RequestInstall();
+        UpdateActivityLog.Info("Update", "App a fechar — actualização será aplicada pelo serviço.");
     }
 }
