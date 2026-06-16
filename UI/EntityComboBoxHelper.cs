@@ -6,50 +6,64 @@ internal static class EntityComboBoxHelper
 {
     public const int MaxVisibleDropDownItems = 20;
 
-    public static void Configure(ComboBox comboBox)
+    sealed class EntityComboEntry(GlpiEntityInfo entity)
     {
-        comboBox.IntegralHeight = false;
-        comboBox.MaxDropDownItems = MaxVisibleDropDownItems;
-        comboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        public GlpiEntityInfo Entity { get; } = entity;
+
+        public override string ToString() =>
+            string.IsNullOrWhiteSpace(Entity.PickerLabel) ? Entity.Name : Entity.PickerLabel;
     }
 
-    /// <summary>
-    /// Liga entidades ao ComboBox sem usar <c>DisplayMember</c> (evita conflito com essa propriedade no WinForms).
-    /// </summary>
+    public static ComboBox Create(int width) =>
+        new()
+        {
+            Width = width,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            IntegralHeight = false,
+            MaxDropDownItems = MaxVisibleDropDownItems,
+            DropDownWidth = Math.Max(width, 480),
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+        };
+
     public static void Bind(ComboBox comboBox, IReadOnlyList<GlpiEntityInfo> entities, int selectedEntityId)
     {
         comboBox.DataSource = null;
-        comboBox.Items.Clear();
         comboBox.DisplayMember = string.Empty;
-        comboBox.ValueMember = nameof(GlpiEntityInfo.Id);
+        comboBox.ValueMember = string.Empty;
 
-        var list = entities.ToList();
-        var bindingSource = new BindingSource { DataSource = list };
-        comboBox.DataSource = bindingSource;
-
-        if (selectedEntityId >= 1)
+        comboBox.BeginUpdate();
+        try
         {
-            try
-            {
-                comboBox.SelectedValue = selectedEntityId;
-            }
-            catch (ArgumentException)
-            {
-                // Id não está na lista filtrada; mantém seleção abaixo.
-            }
+            comboBox.Items.Clear();
+            foreach (var entity in entities)
+                comboBox.Items.Add(new EntityComboEntry(entity));
+        }
+        finally
+        {
+            comboBox.EndUpdate();
         }
 
-        if (comboBox.SelectedIndex < 0 && comboBox.Items.Count > 0)
+        if (!SelectEntityId(comboBox, selectedEntityId) && comboBox.Items.Count > 0)
             comboBox.SelectedIndex = 0;
     }
 
-    public static bool MatchesFilter(GlpiEntityInfo entity, string term)
+    public static bool SelectEntityId(ComboBox comboBox, int selectedEntityId)
     {
-        if (string.IsNullOrWhiteSpace(term))
-            return true;
+        if (selectedEntityId < 1)
+            return false;
 
-        return entity.PickerLabel.Contains(term, StringComparison.OrdinalIgnoreCase)
-            || entity.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
-            || entity.LeafDisplayName.Contains(term, StringComparison.OrdinalIgnoreCase);
+        for (var i = 0; i < comboBox.Items.Count; i++)
+        {
+            if (comboBox.Items[i] is EntityComboEntry entry && entry.Entity.Id == selectedEntityId)
+            {
+                comboBox.SelectedIndex = i;
+                return true;
+            }
+        }
+
+        return false;
     }
+
+    public static int GetSelectedEntityId(ComboBox comboBox) =>
+        comboBox.SelectedItem is EntityComboEntry entry ? entry.Entity.Id : 0;
 }

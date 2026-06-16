@@ -345,45 +345,34 @@ public static class GlpiApiClient
         string sessionToken,
         CancellationToken cancellationToken)
     {
-        var list = new List<GlpiEntityInfo>();
-        const int pageSize = 200;
+        // Uma única requisição evita perder a 2.ª página (entidades com id > ~200, ex.: OPUS, Passarinho).
+        const int rangeEnd = 9999;
+        var url = $"{apiRoot}/Entity?range=0-{rangeEnd}";
 
-        for (var start = 0; start < 10_000; start += pageSize)
-        {
-            var end = start + pageSize - 1;
-            var url = $"{apiRoot}/Entity?range={start}-{end}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        AddJsonContentType(req);
+        req.Headers.TryAddWithoutValidation("App-Token", appToken);
+        req.Headers.TryAddWithoutValidation("Session-Token", sessionToken);
 
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            AddJsonContentType(req);
-            req.Headers.TryAddWithoutValidation("App-Token", appToken);
-            req.Headers.TryAddWithoutValidation("Session-Token", sessionToken);
+        using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfGlpiError(body, resp.IsSuccessStatusCode, (int)resp.StatusCode, "listar Entity");
 
-            using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
-            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            ThrowIfGlpiError(body, resp.IsSuccessStatusCode, (int)resp.StatusCode, "listar Entity");
-
-            var page = ParseEntityListJson(body);
-            if (page.Count == 0)
-                break;
-
-            list.AddRange(page);
-
-            if (page.Count < pageSize)
-                break;
-        }
-
-        return list
-            .Where(ShouldIncludeInEntityPicker)
-            .Select(FormatEntityForPicker)
-            .OrderBy(static e => e.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+        var list = ParseEntityListJson(body)
+            .GroupBy(static e => e.Id)
+            .Select(static g => g.First())
             .ToList();
+
+        return DisambiguateDuplicatePickerLabels(
+            list
+                .Where(static e => !IsDescendantOfAvulsoClientsEntity(e))
+                .Select(FormatEntityForPicker)
+                .Where(static e => !string.IsNullOrWhiteSpace(e.PickerLabel) || !string.IsNullOrWhiteSpace(e.Name))
+                .OrderBy(static e => e.PickerLabel, StringComparer.CurrentCultureIgnoreCase)
+                .ToList());
     }
 
-    const string EntityPickerRootPrefix = "Sistec Sistemas";
-
-    static bool ShouldIncludeInEntityPicker(GlpiEntityInfo entity) =>
-        !IsDescendantOfAvulsoClientsEntity(entity);
-
+    /// <summary>Oculta filhas de "xCLIENTES AVULSO / SEM CONTRATO" na lista de seleção.</summary>
     static bool IsDescendantOfAvulsoClientsEntity(GlpiEntityInfo entity)
     {
         var path = string.IsNullOrWhiteSpace(entity.CompleteName) ? entity.Name : entity.CompleteName;
@@ -404,19 +393,61 @@ public static class GlpiApiClient
         return avulsoIndex >= 0 && avulsoIndex < segments.Length - 1;
     }
 
+    static List<GlpiEntityInfo> DisambiguateDuplicatePickerLabels(List<GlpiEntityInfo> entities)
+    {
+        var duplicateLabels = entities
+            .GroupBy(static e => e.PickerLabel, StringComparer.OrdinalIgnoreCase)
+            .Where(static g => g.Count() > 1)
+            .Select(static g => g.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (duplicateLabels.Count == 0)
+            return entities;
+
+        return entities
+            .Select(entity => duplicateLabels.Contains(entity.PickerLabel)
+                ? new GlpiEntityInfo
+                {
+                    Id = entity.Id,
+                    Name = entity.Name,
+                    CompleteName = entity.CompleteName,
+                    PickerLabel = $"{entity.PickerLabel} (#{entity.Id})",
+                }
+                : entity)
+            .ToList();
+    }
+
+    const string EntityPickerRootPrefix = "Sistec Sistemas";
+
     static GlpiEntityInfo FormatEntityForPicker(GlpiEntityInfo entity)
     {
         var path = string.IsNullOrWhiteSpace(entity.CompleteName) ? entity.Name : entity.CompleteName;
-        var label = SanitizeEntityPickerLabel(StripEntityPickerRootPrefix(path));
+        var stripped = SanitizeEntityPickerLabel(StripEntityPickerRootPrefix(path));
+        var label = ExtractLeafPickerLabel(stripped);
+        if (string.IsNullOrWhiteSpace(label))
+            label = SanitizeEntityPickerLabel(entity.Name);
         var name = SanitizeEntityPickerLabel(entity.Name);
 
         return new GlpiEntityInfo
         {
             Id = entity.Id,
             Name = name,
-            CompleteName = label,
+            CompleteName = stripped,
             PickerLabel = label,
         };
+    }
+
+    static string ExtractLeafPickerLabel(string strippedPath)
+    {
+        var trimmed = strippedPath.Trim();
+        if (trimmed.Length == 0)
+            return trimmed;
+
+        var idx = trimmed.LastIndexOf('>');
+        if (idx < 0 || idx >= trimmed.Length - 1)
+            return trimmed;
+
+        return trimmed[(idx + 1)..].Trim();
     }
 
     internal static string SanitizeEntityPickerLabel(string value)
@@ -571,16 +602,48 @@ public static class GlpiApiClient
             if (el.ValueKind != JsonValueKind.Object)
                 continue;
 
-            if (!el.TryGetProperty("id", out var idEl) || !idEl.TryGetInt32(out var id) || id < 1)
+            var id = TryReadPositiveEntityId(el);
+            if (id is null)
                 continue;
 
-            var name = el.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
-            var complete = el.TryGetProperty("completename", out var c) ? c.GetString() ?? "" : "";
+            var name = TryReadEntityStringProperty(el, "name");
+            var complete = TryReadEntityStringProperty(el, "completename", "complete_name");
 
-            result.Add(new GlpiEntityInfo { Id = id, Name = name, CompleteName = complete });
+            result.Add(new GlpiEntityInfo { Id = id.Value, Name = name, CompleteName = complete });
         }
 
         return result;
+    }
+
+    static int? TryReadPositiveEntityId(JsonElement el)
+    {
+        if (!el.TryGetProperty("id", out var idEl))
+            return null;
+
+        if (idEl.TryGetInt32(out var id) && id >= 1)
+            return id;
+
+        if (idEl.ValueKind == JsonValueKind.String
+            && int.TryParse(idEl.GetString(), out id)
+            && id >= 1)
+            return id;
+
+        return null;
+    }
+
+    static string TryReadEntityStringProperty(JsonElement el, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!el.TryGetProperty(name, out var valueEl))
+                continue;
+
+            var text = valueEl.GetString();
+            if (!string.IsNullOrWhiteSpace(text))
+                return text;
+        }
+
+        return "";
     }
 
     /// <summary>

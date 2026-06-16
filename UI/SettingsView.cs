@@ -6,7 +6,6 @@ namespace SistecHub.UI;
 internal sealed class SettingsView : UserControl
 {
     readonly ComboBox _entityComboBox;
-    readonly TextBox _entityFilterTextBox;
     readonly TextBox _glpiUserTokenTextBox;
     readonly Label _updateStatusLabel;
     readonly Button _installUpdateButton;
@@ -14,7 +13,6 @@ internal sealed class SettingsView : UserControl
     readonly Label _feedbackLabel;
 
     int _persistedEntityId;
-    List<GlpiEntityInfo> _allEntities = [];
 
     public SettingsView()
     {
@@ -143,13 +141,17 @@ internal sealed class SettingsView : UserControl
         stack.Controls.Add(MakeSectionGap());
 
         stack.Controls.Add(MakeFieldLabel("Entidade"));
-        _entityFilterTextBox = MakeWideTextBox();
-        _entityFilterTextBox.PlaceholderText = "Filtrar entidade (ex.: passarinho)";
-        _entityFilterTextBox.TextChanged += (_, _) => ApplyEntityFilter();
-        stack.Controls.Add(_entityFilterTextBox);
-        _entityComboBox = MakeEntityComboBox();
-        EntityComboBoxHelper.Configure(_entityComboBox);
-        stack.Controls.Add(_entityComboBox);
+        var entityHost = new Panel
+        {
+            Width = 400,
+            Height = 28,
+            Margin = new Padding(0),
+            AutoScroll = false,
+        };
+        _entityComboBox = EntityComboBoxHelper.Create(400);
+        _entityComboBox.Dock = DockStyle.Fill;
+        entityHost.Controls.Add(_entityComboBox);
+        stack.Controls.Add(entityHost);
 
         _saveButton = new Button
         {
@@ -249,13 +251,6 @@ internal sealed class SettingsView : UserControl
             BorderStyle = BorderStyle.FixedSingle,
         };
 
-    static ComboBox MakeEntityComboBox() =>
-        new()
-        {
-            Width = 400,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-        };
-
     async void OnViewLoad(object? sender, EventArgs e)
     {
         Load -= OnViewLoad;
@@ -286,6 +281,7 @@ internal sealed class SettingsView : UserControl
     {
         if (_persistedEntityId < 1)
         {
+            _entityComboBox.Enabled = false;
             _entityComboBox.DataSource = null;
             _entityComboBox.Items.Clear();
             _entityComboBox.Items.Add("Nenhuma entidade configurada");
@@ -293,27 +289,11 @@ internal sealed class SettingsView : UserControl
             return;
         }
 
-        BindEntityCombo([MakeSavedEntityPlaceholder(_persistedEntityId)], _persistedEntityId);
-    }
-
-    void BindEntityCombo(IReadOnlyList<GlpiEntityInfo> entities, int selectedEntityId) =>
-        EntityComboBoxHelper.Bind(_entityComboBox, entities, selectedEntityId);
-
-    void ApplyEntityFilter()
-    {
-        if (_allEntities.Count == 0)
-            return;
-
-        var selectedId = ResolveSelectedEntityId(_entityComboBox);
-        if (selectedId < 1)
-            selectedId = _persistedEntityId;
-
-        var term = _entityFilterTextBox.Text.Trim();
-        var filtered = string.IsNullOrEmpty(term)
-            ? _allEntities
-            : _allEntities.Where(e => EntityComboBoxHelper.MatchesFilter(e, term)).ToList();
-
-        BindEntityCombo(filtered, selectedId);
+        _entityComboBox.Enabled = true;
+        EntityComboBoxHelper.Bind(
+            _entityComboBox,
+            [MakeSavedEntityPlaceholder(_persistedEntityId)],
+            _persistedEntityId);
     }
 
     async Task LoadEntityComboAsync(AppUserSettings settings)
@@ -330,15 +310,26 @@ internal sealed class SettingsView : UserControl
             if (entities.Count == 0)
                 return;
 
-            _allEntities = entities.ToList();
-            if (_persistedEntityId >= 1 && _allEntities.All(e => e.Id != _persistedEntityId))
-                _allEntities.Insert(0, MakeSavedEntityPlaceholder(_persistedEntityId));
+            var list = entities.ToList();
+            if (_persistedEntityId >= 1 && list.All(e => e.Id != _persistedEntityId))
+                list.Insert(0, MakeSavedEntityPlaceholder(_persistedEntityId));
 
-            ApplyEntityFilter();
+            var selectedId = EntityComboBoxHelper.GetSelectedEntityId(_entityComboBox);
+            if (selectedId < 1)
+                selectedId = _persistedEntityId;
+
+            EntityComboBoxHelper.Bind(_entityComboBox, list, selectedId);
+
+            AppDebugLog.Info(
+                "Entidades",
+                $"API={list.Count}; ComboBox={_entityComboBox.Items.Count}; " +
+                $"opus={list.Count(e => e.PickerLabel.Contains("opus", StringComparison.OrdinalIgnoreCase))}; " +
+                $"passarinho={list.Count(e => e.PickerLabel.Contains("passarinho", StringComparison.OrdinalIgnoreCase))}; " +
+                $"donna={list.Count(e => e.PickerLabel.Contains("donna", StringComparison.OrdinalIgnoreCase))}");
         }
-        catch
+        catch (Exception ex)
         {
-            // Mantém a entidade salva visível quando o token ainda não permite listar entidades.
+            AppDebugLog.LogException("Entidades", ex, "Falha ao carregar lista de entidades");
         }
         finally
         {
@@ -346,23 +337,9 @@ internal sealed class SettingsView : UserControl
         }
     }
 
-    static int ResolveSelectedEntityId(ComboBox comboBox)
-    {
-        if (comboBox.SelectedItem is GlpiEntityInfo entity)
-            return entity.Id;
-
-        if (comboBox.SelectedValue is int id)
-            return id;
-
-        if (comboBox.SelectedValue is string idText && int.TryParse(idText, out var parsed))
-            return parsed;
-
-        return 0;
-    }
-
     int ResolveEntityIdForSave()
     {
-        var entityId = ResolveSelectedEntityId(_entityComboBox);
+        var entityId = EntityComboBoxHelper.GetSelectedEntityId(_entityComboBox);
         if (entityId >= 1)
             return entityId;
 
