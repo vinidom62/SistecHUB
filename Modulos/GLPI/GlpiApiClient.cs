@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -12,8 +13,14 @@ public sealed class GlpiEntityInfo
     public string Name { get; init; } = "";
     public string CompleteName { get; init; } = "";
 
+    /// <summary>Texto exibido no ComboBox de entidades (sanitizado para WinForms).</summary>
+    public string PickerLabel { get; init; } = "";
+
     public string DisplayName =>
         string.IsNullOrWhiteSpace(CompleteName) ? Name : CompleteName.Trim();
+
+    public override string ToString() =>
+        string.IsNullOrWhiteSpace(PickerLabel) ? DisplayName : PickerLabel;
 
     /// <summary>Último segmento do caminho da entidade (ex.: ignora "Sistec Sistemas &gt; ").</summary>
     public string LeafDisplayName
@@ -400,14 +407,25 @@ public static class GlpiApiClient
     static GlpiEntityInfo FormatEntityForPicker(GlpiEntityInfo entity)
     {
         var path = string.IsNullOrWhiteSpace(entity.CompleteName) ? entity.Name : entity.CompleteName;
-        var label = StripEntityPickerRootPrefix(path);
+        var label = SanitizeEntityPickerLabel(StripEntityPickerRootPrefix(path));
+        var name = SanitizeEntityPickerLabel(entity.Name);
 
         return new GlpiEntityInfo
         {
             Id = entity.Id,
-            Name = entity.Name,
+            Name = name,
             CompleteName = label,
+            PickerLabel = label,
         };
+    }
+
+    internal static string SanitizeEntityPickerLabel(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        var decoded = WebUtility.HtmlDecode(value.Trim());
+        return decoded.Replace("&", "&&", StringComparison.Ordinal);
     }
 
     static string StripEntityPickerRootPrefix(string path)

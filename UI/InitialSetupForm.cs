@@ -15,12 +15,14 @@ internal sealed class InitialSetupForm : Form
     readonly Label _stepIndicator;
     readonly Label _fieldLabel;
     readonly TextBox _inputTextBox;
+    readonly TextBox _entityFilterTextBox;
     readonly ComboBox _entityComboBox;
     readonly Button _continueButton;
 
     SetupStep _step;
     AppUserSettings _draftSettings = new();
     bool _setupCompleted;
+    List<GlpiEntityInfo> _allEntities = [];
 
     public InitialSetupForm()
     {
@@ -80,7 +82,12 @@ internal sealed class InitialSetupForm : Form
 
         _fieldLabel = MakeFieldLabel("");
         _inputTextBox = MakeWideTextBox();
+        _entityFilterTextBox = MakeWideTextBox();
+        _entityFilterTextBox.PlaceholderText = "Filtrar entidade (ex.: passarinho)";
+        _entityFilterTextBox.Visible = false;
+        _entityFilterTextBox.TextChanged += (_, _) => ApplyEntityFilter();
         _entityComboBox = MakeEntityComboBox();
+        EntityComboBoxHelper.Configure(_entityComboBox);
 
         _continueButton = new Button
         {
@@ -104,6 +111,7 @@ internal sealed class InitialSetupForm : Form
         stack.Controls.Add(_subtitle);
         stack.Controls.Add(_fieldLabel);
         stack.Controls.Add(_inputTextBox);
+        stack.Controls.Add(_entityFilterTextBox);
         stack.Controls.Add(_entityComboBox);
         stack.Controls.Add(_continueButton);
 
@@ -136,7 +144,6 @@ internal sealed class InitialSetupForm : Form
         new()
         {
             Width = 460,
-            DropDownStyle = ComboBoxStyle.DropDownList,
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
             Visible = false,
         };
@@ -190,6 +197,7 @@ internal sealed class InitialSetupForm : Form
     {
         _stepIndicator.Text = $"Passo {(int)_step} de 2";
         _inputTextBox.Visible = _step != SetupStep.EntityId;
+        _entityFilterTextBox.Visible = _step == SetupStep.EntityId;
         _entityComboBox.Visible = _step == SetupStep.EntityId;
 
         switch (_step)
@@ -209,7 +217,7 @@ internal sealed class InitialSetupForm : Form
                 _fieldLabel.Text = "Entidade";
                 _continueButton.Text = "Salvar e continuar";
                 await LoadEntityComboAsync().ConfigureAwait(true);
-                _entityComboBox.Focus();
+                _entityFilterTextBox.Focus();
                 break;
         }
     }
@@ -232,21 +240,34 @@ internal sealed class InitialSetupForm : Form
                 throw new InvalidOperationException("Não foram encontradas entidades acessíveis no GLPI.");
             }
 
-            _entityComboBox.DataSource = entities.ToList();
-            _entityComboBox.DisplayMember = nameof(GlpiEntityInfo.DisplayName);
-            _entityComboBox.ValueMember = nameof(GlpiEntityInfo.Id);
+            _allEntities = entities.ToList();
+            _entityFilterTextBox.Text = "";
 
+            var selectedId = 0;
             if (int.TryParse(_draftSettings.EntityId?.Trim(), out var savedId))
-                _entityComboBox.SelectedValue = savedId;
+                selectedId = savedId;
 
-            if (_entityComboBox.SelectedIndex < 0 && _entityComboBox.Items.Count > 0)
-                _entityComboBox.SelectedIndex = 0;
+            EntityComboBoxHelper.Bind(_entityComboBox, _allEntities, selectedId);
         }
         finally
         {
             _entityComboBox.Enabled = true;
             _continueButton.Enabled = true;
         }
+    }
+
+    void ApplyEntityFilter()
+    {
+        if (_allEntities.Count == 0)
+            return;
+
+        var selectedId = ResolveSelectedEntityId(_entityComboBox);
+        var term = _entityFilterTextBox.Text.Trim();
+        var filtered = string.IsNullOrEmpty(term)
+            ? _allEntities
+            : _allEntities.Where(e => EntityComboBoxHelper.MatchesFilter(e, term)).ToList();
+
+        EntityComboBoxHelper.Bind(_entityComboBox, filtered, selectedId);
     }
 
     void OnFormClosing(object? sender, FormClosingEventArgs e)
