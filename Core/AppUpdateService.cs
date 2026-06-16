@@ -219,13 +219,7 @@ public static class AppUpdateService
     static void ShowCountdownAndRestart(IWin32Window owner, string version)
     {
         using var countdown = new SistecHub.UI.UpdateCountdownForm(version, seconds: 10);
-        if (countdown.ShowDialog(owner) != DialogResult.OK)
-        {
-            lock (NotifySync)
-                _notifiedVersion = null;
-            UpdateActivityLog.Info("Update", "Utilizador adiou o reinício para actualização.");
-            return;
-        }
+        countdown.ShowDialog(owner);
 
         UpdateActivityLog.Info("Update", "Reinício para aplicar actualização.");
         SignalApplyOnExit();

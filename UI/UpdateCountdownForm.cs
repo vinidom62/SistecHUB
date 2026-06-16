@@ -12,11 +12,12 @@ internal sealed class UpdateCountdownForm : Form
         _secondsRemaining = seconds;
 
         Text = "Actualização disponível";
-        ClientSize = new Size(460, 220);
+        ClientSize = new Size(460, 180);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
+        ControlBox = false;
         BackColor = ShellTheme.MainBg;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
         TopMost = true;
@@ -31,14 +32,13 @@ internal sealed class UpdateCountdownForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
-            Padding = new Padding(28, 24, 28, 20),
+            RowCount = 3,
+            Padding = new Padding(28, 24, 28, 24),
             BackColor = Color.Transparent,
         };
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         var title = new Label
         {
@@ -64,54 +64,11 @@ internal sealed class UpdateCountdownForm : Form
             AutoSize = true,
             Font = new Font("Segoe UI", 11F, FontStyle.Regular, GraphicsUnit.Point),
             ForeColor = ShellTheme.Accent,
-            Margin = new Padding(0, 0, 0, 16),
         };
-
-        var buttons = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            FlowDirection = FlowDirection.RightToLeft,
-            WrapContents = false,
-            Margin = new Padding(0),
-        };
-
-        var restartNow = new Button
-        {
-            Text = "Reiniciar agora",
-            AutoSize = true,
-            Height = 34,
-            Padding = new Padding(14, 0, 14, 0),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = ShellTheme.Accent,
-            ForeColor = Color.White,
-            Cursor = Cursors.Hand,
-        };
-        restartNow.FlatAppearance.BorderSize = 0;
-        restartNow.Click += (_, _) => Complete(DialogResult.OK);
-
-        var postpone = new Button
-        {
-            Text = "Adiar",
-            AutoSize = true,
-            Height = 34,
-            Padding = new Padding(14, 0, 14, 0),
-            Margin = new Padding(0, 0, 8, 0),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(241, 245, 249),
-            ForeColor = ShellTheme.TextPrimary,
-            Cursor = Cursors.Hand,
-        };
-        postpone.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
-        postpone.FlatAppearance.BorderSize = 1;
-        postpone.Click += (_, _) => Complete(DialogResult.Cancel);
-
-        buttons.Controls.Add(restartNow);
-        buttons.Controls.Add(postpone);
 
         stack.Controls.Add(title, 0, 0);
         stack.Controls.Add(info, 0, 1);
         stack.Controls.Add(_countdownLabel, 0, 2);
-        stack.Controls.Add(buttons, 0, 3);
         Controls.Add(stack);
 
         _timer = new System.Windows.Forms.Timer { Interval = 1000 };
@@ -122,12 +79,6 @@ internal sealed class UpdateCountdownForm : Form
             UpdateCountdownText();
             _timer.Start();
         };
-
-        FormClosing += (_, e) =>
-        {
-            if (DialogResult is DialogResult.None && e.CloseReason == CloseReason.UserClosing)
-                e.Cancel = true;
-        };
     }
 
     void OnTimerTick(object? sender, EventArgs e)
@@ -135,7 +86,7 @@ internal sealed class UpdateCountdownForm : Form
         _secondsRemaining--;
         if (_secondsRemaining <= 0)
         {
-            Complete(DialogResult.OK);
+            Complete();
             return;
         }
 
@@ -145,10 +96,10 @@ internal sealed class UpdateCountdownForm : Form
     void UpdateCountdownText() =>
         _countdownLabel.Text = $"Reiniciando em {_secondsRemaining} segundo{(_secondsRemaining == 1 ? "" : "s")}...";
 
-    void Complete(DialogResult result)
+    void Complete()
     {
         _timer.Stop();
-        DialogResult = result;
+        DialogResult = DialogResult.OK;
         Close();
     }
 }
