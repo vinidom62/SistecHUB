@@ -104,24 +104,24 @@ public static class UpdateServiceCoordinator
             return $"Versão {pending.Version} pronta para instalar.";
 
         if (status is null)
-            return "A verificar actualizações...";
+            return "A verificar atualizações...";
 
         return status.Phase switch
         {
-            UpdateServicePhase.Checking => "A verificar actualizações...",
+            UpdateServicePhase.Checking => "A verificar atualizações...",
             UpdateServicePhase.Downloading => status.AvailableVersion is { } v
                 ? $"A transferir versão {v}..."
-                : "A transferir actualização...",
+                : "A transferir atualização...",
             UpdateServicePhase.PendingAppClose => status.AvailableVersion is { } ready
                 ? $"Versão {ready} pronta — será instalada ao fechar o SistecHub."
                 : status.Message,
-            UpdateServicePhase.Applying => "A instalar actualização...",
+            UpdateServicePhase.Applying => "A instalar atualização...",
             UpdateServicePhase.Completed => status.AvailableVersion is { } done
-                ? $"Actualização concluída — versão {done}."
-                : "Actualização concluída.",
-            UpdateServicePhase.UpToDate => $"Versão {status.CurrentVersion ?? VelopackUpdateEngine.DisplayVersion} — sem actualizações.",
+                ? $"Atualização concluída — versão {done}."
+                : "Atualização concluída.",
+            UpdateServicePhase.UpToDate => $"Versão {status.CurrentVersion ?? VelopackUpdateEngine.DisplayVersion} — sem atualizações.",
             UpdateServicePhase.Error => "Erro: " + status.Message,
-            _ => "A aguardar verificação de actualizações...",
+            _ => "A aguardar verificação de atualizações...",
         };
     }
 

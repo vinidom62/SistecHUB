@@ -82,7 +82,7 @@ public static class WindowsServiceGuard
 
         ShowBlockedMessage(
             "O serviço SistecHub Service não está em execução.\n\n"
-            + "Se acabou de actualizar, aguarde um momento e abra o SistecHub novamente.\n\n"
+            + "Se acabou de atualizar, aguarde um momento e abra o SistecHub novamente.\n\n"
             + "Caso contrário, abra «Serviços» (services.msc) e inicie «SistecHub Service».");
         Environment.Exit(1);
     }

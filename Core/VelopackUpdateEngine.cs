@@ -99,7 +99,7 @@ public static class VelopackUpdateEngine
             UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
             {
                 Phase = UpdateServicePhase.Error,
-                Message = "Falha ao aplicar actualização: " + ex.Message,
+                Message = "Falha ao aplicar atualização: " + ex.Message,
                 AvailableVersion = asset.Version.ToString(),
             });
             throw;

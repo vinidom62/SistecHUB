@@ -40,8 +40,8 @@ public static class AppUpdateService
         {
             MessageBox.Show(
                 owner,
-                "Actualizações só estão disponíveis na instalação MSI (Program Files).",
-                "Verificar actualização",
+                "Atualizações só estão disponíveis na instalação MSI (Program Files).",
+                "Verificar atualização",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
             return;
@@ -92,7 +92,7 @@ public static class AppUpdateService
                 "A verificação demorou demais.\n\n"
                 + "Confirme que «SistecHub Service» está em execução.\n\n"
                 + "Log: " + UpdateActivityLog.LogFilePath,
-                "Verificar actualização",
+                "Verificar atualização",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
@@ -138,7 +138,7 @@ public static class AppUpdateService
                     MessageBox.Show(
                         owner,
                         $"O SistecHub já está na versão mais recente ({DisplayVersion}).",
-                        "Verificar actualização",
+                        "Verificar atualização",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);
                 }
@@ -153,7 +153,7 @@ public static class AppUpdateService
                     MessageBox.Show(
                         owner,
                         status.Message + "\n\nDetalhes em:\n" + UpdateActivityLog.LogFilePath,
-                        "Verificar actualização",
+                        "Verificar atualização",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                 }

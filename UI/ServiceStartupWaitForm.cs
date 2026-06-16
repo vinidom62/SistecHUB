@@ -19,7 +19,7 @@ internal sealed class ServiceStartupWaitForm : Form
 
     public ServiceStartupWaitForm()
     {
-        Text = "SistecHub — actualização";
+        Text = "SistecHub — atualização";
         ClientSize = new Size(480, 200);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -49,7 +49,7 @@ internal sealed class ServiceStartupWaitForm : Form
 
         _messageLabel = new Label
         {
-            Text = "A aplicar actualização, aguarde o serviço reiniciar...",
+            Text = "A aplicar atualização, aguarde o serviço reiniciar...",
             AutoSize = true,
             MaximumSize = new Size(420, 0),
             Font = new Font("Segoe UI", 12F, FontStyle.Regular, GraphicsUnit.Point),
@@ -123,7 +123,7 @@ internal sealed class ServiceStartupWaitForm : Form
     {
         if (!_inCountdownPhase)
         {
-            _messageLabel.Text = "A aplicar actualização, aguarde o serviço reiniciar...";
+            _messageLabel.Text = "A aplicar atualização, aguarde o serviço reiniciar...";
             var remaining = WaitPhaseSeconds - _secondsInPhase;
             _countdownLabel.Text = remaining > 0
                 ? $"A verificar o serviço... ({remaining}s)"

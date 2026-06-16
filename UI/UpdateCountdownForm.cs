@@ -11,7 +11,7 @@ internal sealed class UpdateCountdownForm : Form
     {
         _secondsRemaining = seconds;
 
-        Text = "Actualização disponível";
+        Text = "Atualização disponível";
         ClientSize = new Size(460, 180);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -51,7 +51,7 @@ internal sealed class UpdateCountdownForm : Form
 
         var info = new Label
         {
-            Text = "O SistecHub irá reiniciar automaticamente para aplicar a actualização.",
+            Text = "O SistecHub irá reiniciar automaticamente para aplicar a atualização.",
             AutoSize = true,
             MaximumSize = new Size(400, 0),
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),

@@ -66,7 +66,7 @@ internal sealed class SettingsView : UserControl
 
         _installUpdateButton = new Button
         {
-            Text = "Verificar actualização",
+            Text = "Verificar atualização",
             AutoSize = true,
             Height = 36,
             Padding = new Padding(16, 0, 16, 0),
@@ -88,7 +88,7 @@ internal sealed class SettingsView : UserControl
         {
             stack.Controls.Add(new Label
             {
-                Text = "Actualizações indisponíveis — use a instalação MSI.",
+                Text = "Atualizações indisponíveis — use a instalação MSI.",
                 AutoSize = true,
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point),
                 ForeColor = ShellTheme.TextMuted,
@@ -117,7 +117,7 @@ internal sealed class SettingsView : UserControl
 
         var viewUpdateLogButton = new Button
         {
-            Text = "Ver log de actualização",
+            Text = "Ver log de atualização",
             AutoSize = true,
             Height = 32,
             Padding = new Padding(14, 0, 14, 0),
@@ -218,7 +218,7 @@ internal sealed class SettingsView : UserControl
         var tail = UpdateActivityLog.ReadTail(50);
         MessageBox.Show(
             tail,
-            "Log de actualização (update.log)",
+            "Log de atualização (update.log)",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
     }

@@ -44,7 +44,7 @@ static class Program
                     UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
                     {
                         Phase = UpdateServicePhase.Completed,
-                        Message = $"Actualização concluída — versão {v}.",
+                        Message = $"Atualização concluída — versão {v}.",
                         AvailableVersion = v.ToString(),
                         CurrentVersion = v.ToString(),
                     });
@@ -54,7 +54,7 @@ static class Program
                     UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
                     {
                         Phase = UpdateServicePhase.Error,
-                        Message = "Actualização instalada, mas o SistecHub não pôde ser aberto automaticamente.",
+                        Message = "Atualização instalada, mas o SistecHub não pôde ser aberto automaticamente.",
                         AvailableVersion = v.ToString(),
                     });
                 }
@@ -104,9 +104,9 @@ static class Program
         if (status.Phase == UpdateServicePhase.Error)
         {
             MessageBox.Show(
-                "A última actualização falhou:\n\n" + status.Message
+                "A última atualização falhou:\n\n" + status.Message
                 + "\n\nConsulte update.log em Modo Debug ou em ProgramData\\SistecHub.",
-                "Actualização",
+                "Atualização",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
