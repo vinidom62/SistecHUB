@@ -54,6 +54,8 @@ internal sealed class MainForm : Form
         _trayIcon.ContextMenuStrip = trayMenu;
         _trayIcon.DoubleClick += (_, _) => ShowFromTray();
 
+        AppUpdateService.UpdateRestartRequested += OnUpdateRestartRequested;
+
         Shown += (_, _) => AppUpdateService.BeginAutomaticUpdateMonitoring(this);
 
         FormClosing += OnFormClosing;
@@ -251,6 +253,17 @@ internal sealed class MainForm : Form
             return;
         }
         base.WndProc(ref m);
+    }
+
+    void OnUpdateRestartRequested()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(OnUpdateRestartRequested);
+            return;
+        }
+
+        RequestExit();
     }
 
     void RequestExit()

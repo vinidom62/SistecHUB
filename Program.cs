@@ -40,6 +40,7 @@ static class Program
 
                 if (SistecHubAppLauncher.TryStartMainApp("hook OnAfterUpdate"))
                 {
+                    UpdateServiceCoordinator.ClearReopenAppRequest();
                     UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
                     {
                         Phase = UpdateServicePhase.Completed,

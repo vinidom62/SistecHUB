@@ -1,9 +1,10 @@
 using System.ServiceProcess;
+using SistecHub.UI;
 
 namespace SistecHub.Core;
 
 /// <summary>Exige que o serviço Windows esteja activo antes de executar o SistecHub (instalações MSI).</summary>
-internal static class WindowsServiceGuard
+public static class WindowsServiceGuard
 {
     static readonly TimeSpan ServiceWaitTimeout = TimeSpan.FromSeconds(15);
 
@@ -53,6 +54,14 @@ internal static class WindowsServiceGuard
         if (IsRunning())
             return;
 
+        if (UpdateServiceCoordinator.IsServiceRecoveryLikelyUpdateRelated())
+        {
+            ServiceLogWriter.Info("App", "Serviço indisponível durante recuperação de actualização — a aguardar.");
+            using var waitForm = new ServiceStartupWaitForm();
+            if (waitForm.ShowDialog() == DialogResult.OK && IsRunning())
+                return;
+        }
+
         ServiceLogWriter.Warn("App", "Serviço parado — a tentar iniciar...");
         AppDebugLog.Warn("App", "Serviço SistecHubService parado; a tentar iniciar.");
 
@@ -73,8 +82,8 @@ internal static class WindowsServiceGuard
 
         ShowBlockedMessage(
             "O serviço SistecHub Service não está em execução.\n\n"
-            + "O SistecHub só funciona com o serviço activo. "
-            + "Abra «Serviços» (services.msc), inicie «SistecHub Service» ou reinstale pelo MSI aceitando o UAC.");
+            + "Se acabou de actualizar, aguarde um momento e abra o SistecHub novamente.\n\n"
+            + "Caso contrário, abra «Serviços» (services.msc) e inicie «SistecHub Service».");
         Environment.Exit(1);
     }
 

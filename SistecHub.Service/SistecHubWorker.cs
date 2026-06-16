@@ -24,10 +24,11 @@ public sealed class SistecHubWorker : BackgroundService
             Environment.UserName);
 
         var updateTask = _updateWorker.RunLoopAsync(stoppingToken);
+        var reopenTask = PostUpdateAppReopen.RunRecoveryLoopAsync(stoppingToken);
 
         try
         {
-            await updateTask.ConfigureAwait(false);
+            await Task.WhenAll(updateTask, reopenTask).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

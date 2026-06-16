@@ -20,7 +20,23 @@ public static class UpdateServiceCoordinator
     public static string StatusFilePath =>
         Path.Combine(SharedMachineStorage.RootPath, "update-status.json");
 
+    public static string ReopenAppRequestFilePath =>
+        Path.Combine(SharedMachineStorage.RootPath, "reopen-app.request");
+
     public static bool UsesServiceForUpdates => VelopackUpdateEngine.IsInstalled;
+
+    /// <summary>Indica arranque provável durante ou logo após uma actualização.</summary>
+    public static bool IsServiceRecoveryLikelyUpdateRelated()
+    {
+        var status = TryReadStatus();
+        if (status?.Phase is UpdateServicePhase.Applying
+            or UpdateServicePhase.PendingAppClose
+            or UpdateServicePhase.Completed)
+            return true;
+
+        return VelopackUpdateEngine.PendingRestart is not null
+            || HasReopenAppRequest();
+    }
 
     public static void RequestImmediateCheck()
     {
@@ -34,6 +50,29 @@ public static class UpdateServiceCoordinator
         SharedMachineStorage.EnsureDirectory();
         File.WriteAllText(InstallRequestFilePath, DateTimeOffset.UtcNow.ToString("O"));
         RequestImmediateCheck();
+    }
+
+    /// <summary>Pedido para o serviço relançar o SistecHub na sessão do utilizador após actualizar.</summary>
+    public static void RequestReopenAppAfterUpdate(string? version = null)
+    {
+        SharedMachineStorage.EnsureDirectory();
+        File.WriteAllText(ReopenAppRequestFilePath, version ?? DateTimeOffset.UtcNow.ToString("O"));
+        UpdateActivityLog.Info("Update", "Pedido de reabertura do SistecHub registado.");
+    }
+
+    public static bool HasReopenAppRequest() => File.Exists(ReopenAppRequestFilePath);
+
+    public static void ClearReopenAppRequest()
+    {
+        try
+        {
+            if (File.Exists(ReopenAppRequestFilePath))
+                File.Delete(ReopenAppRequestFilePath);
+        }
+        catch
+        {
+            // Melhor esforço.
+        }
     }
 
     public static bool TryConsumeInstallRequest()

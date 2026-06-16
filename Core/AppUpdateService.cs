@@ -7,6 +7,9 @@ public static class AppUpdateService
     static string? _notifiedVersion;
     static bool _monitorRunning;
 
+    /// <summary>Disparado para reiniciar o app (após contagem regressiva ou «Reiniciar agora»).</summary>
+    public static event Action? UpdateRestartRequested;
+
     public static bool IsUpdateSupported => VelopackUpdateEngine.IsInstalled;
 
     public static string DisplayVersion => VelopackUpdateEngine.DisplayVersion;
@@ -17,7 +20,7 @@ public static class AppUpdateService
         return statusText + Environment.NewLine + $"Log: {UpdateActivityLog.LogFilePath}";
     }
 
-    /// <summary>Verificação automática ao abrir o aplicativo (sem diálogos excepto update pronta).</summary>
+    /// <summary>Verificação automática ao abrir o aplicativo.</summary>
     public static void BeginAutomaticUpdateMonitoring(IWin32Window? owner)
     {
         if (!IsUpdateSupported)
@@ -124,7 +127,7 @@ public static class AppUpdateService
 
             if (IsUpdateReadyToApply())
             {
-                NotifyUpdateReadyIfNeeded(owner, manualFlow);
+                PromptRestartForUpdateIfNeeded(owner);
                 return MonitorResult.Settled;
             }
 
@@ -161,7 +164,7 @@ public static class AppUpdateService
 
         if (IsUpdateReadyToApply())
         {
-            NotifyUpdateReadyIfNeeded(owner, manualFlow);
+            PromptRestartForUpdateIfNeeded(owner);
             return MonitorResult.Settled;
         }
 
@@ -172,7 +175,7 @@ public static class AppUpdateService
         VelopackUpdateEngine.PendingRestart is not null
         || UpdateServiceCoordinator.TryReadStatus()?.Phase == UpdateServicePhase.PendingAppClose;
 
-    static void NotifyUpdateReadyIfNeeded(IWin32Window? owner, bool manualFlow)
+    static void PromptRestartForUpdateIfNeeded(IWin32Window? owner)
     {
         var version = VelopackUpdateEngine.PendingRestart?.Version.ToString()
             ?? UpdateServiceCoordinator.TryReadStatus()?.AvailableVersion;
@@ -187,43 +190,46 @@ public static class AppUpdateService
             _notifiedVersion = version;
         }
 
-        UpdateActivityLog.Info("Update", $"Actualização {version} pronta — UI aberta, aguarda fecho do app.");
-
-        var message = manualFlow
-            ? $"A versão {version} está pronta.\n\nSerá instalada automaticamente ao fechar o SistecHub."
-            : $"Foi encontrada a versão {version}.\n\n"
-              + "A actualização será instalada automaticamente ao fechar o SistecHub.";
+        UpdateActivityLog.Info("Update", $"Actualização {version} pronta — a mostrar contagem regressiva.");
 
         if (owner is null)
         {
-            UpdateActivityLog.Info("Update", message.Replace('\n', ' '));
+            UpdateActivityLog.Warn("Update", "Sem janela principal — não foi possível mostrar contagem regressiva.");
             return;
         }
 
         try
         {
-            if (owner is Control { InvokeRequired: true } control)
-            {
-                control.BeginInvoke(() => ShowUpdateReadyMessage(owner, message, manualFlow));
-                return;
-            }
-
-            ShowUpdateReadyMessage(owner, message, manualFlow);
+            RunOnUiThread(owner, () => ShowCountdownAndRestart(owner, version));
         }
         catch (Exception ex)
         {
-            UpdateActivityLog.LogException("Update", ex, "Falha ao mostrar aviso de actualização pronta.");
+            UpdateActivityLog.LogException("Update", ex, "Falha ao mostrar contagem regressiva de actualização.");
         }
     }
 
-    static void ShowUpdateReadyMessage(IWin32Window? owner, string message, bool manualFlow)
+    static void RunOnUiThread(IWin32Window owner, Action action)
     {
-        MessageBox.Show(
-            owner,
-            message,
-            manualFlow ? "Verificar actualização" : "Actualização disponível",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
+        if (owner is Control { InvokeRequired: true } control)
+            control.BeginInvoke(action);
+        else
+            action();
+    }
+
+    static void ShowCountdownAndRestart(IWin32Window owner, string version)
+    {
+        using var countdown = new SistecHub.UI.UpdateCountdownForm(version, seconds: 10);
+        if (countdown.ShowDialog(owner) != DialogResult.OK)
+        {
+            lock (NotifySync)
+                _notifiedVersion = null;
+            UpdateActivityLog.Info("Update", "Utilizador adiou o reinício para actualização.");
+            return;
+        }
+
+        UpdateActivityLog.Info("Update", "Reinício para aplicar actualização.");
+        SignalApplyOnExit();
+        UpdateRestartRequested?.Invoke();
     }
 
     /// <summary>Chamado ao fechar o app quando há update pendente — o serviço instala em silêncio.</summary>

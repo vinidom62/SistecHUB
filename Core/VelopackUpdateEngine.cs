@@ -90,6 +90,7 @@ public static class VelopackUpdateEngine
 
         try
         {
+            UpdateServiceCoordinator.RequestReopenAppAfterUpdate(asset.Version.ToString());
             Manager.ApplyUpdatesAndExit(asset);
         }
         catch (Exception ex)
