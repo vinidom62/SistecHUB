@@ -6,12 +6,23 @@ namespace SistecHub.Core;
 /// <summary>Verificação, download e aplicação Velopack sem UI (usado pelo serviço Windows).</summary>
 public static class VelopackUpdateEngine
 {
-    static UpdateManager? _manager;
+    static UpdateManager? _stableManager;
+    static UpdateManager? _prereleaseManager;
 
-    static UpdateManager Manager => _manager ??= new UpdateManager(
-        new GithubSource(AppReleaseConfig.GitHubRepoUrl, accessToken: null, prerelease: false),
-        options: null,
-        locator: VelopackInstallLocator.Create());
+    static UpdateManager StableManager =>
+        _stableManager ??= CreateManager(includePrerelease: false);
+
+    static UpdateManager PrereleaseManager =>
+        _prereleaseManager ??= CreateManager(includePrerelease: true);
+
+    static UpdateManager CreateManager(bool includePrerelease) =>
+        new(
+            new GithubSource(AppReleaseConfig.GitHubRepoUrl, accessToken: null, prerelease: includePrerelease),
+            options: null,
+            locator: VelopackInstallLocator.Create());
+
+    static UpdateManager ManagerFor(bool includePrerelease) =>
+        includePrerelease ? PrereleaseManager : StableManager;
 
     public static bool IsInstalled
     {
@@ -19,7 +30,7 @@ public static class VelopackUpdateEngine
         {
             try
             {
-                return Manager.IsInstalled;
+                return StableManager.IsInstalled;
             }
             catch
             {
@@ -29,7 +40,7 @@ public static class VelopackUpdateEngine
     }
 
     public static string DisplayVersion =>
-        IsInstalled && Manager.CurrentVersion is { } v
+        IsInstalled && StableManager.CurrentVersion is { } v
             ? v.ToString()
             : AppVersion.Current;
 
@@ -39,7 +50,7 @@ public static class VelopackUpdateEngine
         {
             try
             {
-                return Manager.UpdatePendingRestart;
+                return StableManager.UpdatePendingRestart;
             }
             catch
             {
@@ -48,23 +59,31 @@ public static class VelopackUpdateEngine
         }
     }
 
-    public static async Task<UpdateInfo?> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
+    /// <param name="includePrerelease">
+    /// Só true no fluxo manual «Verificar atualização Beta». Automático e estável usam false.
+    /// </param>
+    public static async Task<UpdateInfo?> CheckForUpdatesAsync(
+        bool includePrerelease = false,
+        CancellationToken cancellationToken = default)
     {
         if (!IsInstalled)
             return null;
 
-        return await Manager.CheckForUpdatesAsync().ConfigureAwait(false);
+        return await ManagerFor(includePrerelease).CheckForUpdatesAsync().ConfigureAwait(false);
     }
 
     public static async Task DownloadUpdatesAsync(
         UpdateInfo update,
+        bool includePrerelease = false,
         Action<int>? progress = null,
         CancellationToken cancellationToken = default)
     {
         if (!IsInstalled)
             return;
 
-        await Manager.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(false);
+        await ManagerFor(includePrerelease)
+            .DownloadUpdatesAsync(update, progress, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -91,7 +110,7 @@ public static class VelopackUpdateEngine
         try
         {
             UpdateServiceCoordinator.RequestReopenAppAfterUpdate(asset.Version.ToString());
-            Manager.ApplyUpdatesAndExit(asset);
+            StableManager.ApplyUpdatesAndExit(asset);
         }
         catch (Exception ex)
         {

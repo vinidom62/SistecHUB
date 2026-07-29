@@ -41,6 +41,15 @@ dotnet publish $ServiceCsproj -c Release -r win-x64 --self-contained -o $Publish
 Write-Host "Publicando utilitário de serviço (self-contained win-x64)..." -ForegroundColor Cyan
 dotnet publish $ServiceSetupCsproj -c Release -r win-x64 --self-contained -o $PublishDir
 
+$PawnIoSetup = Join-Path $Root "ThirdParty\PawnIO\PawnIO_setup.exe"
+if (-not (Test-Path $PawnIoSetup)) {
+    Write-Host "A descarregar PawnIO_setup.exe 2.2.0..." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Force -Path (Split-Path $PawnIoSetup) | Out-Null
+    Invoke-WebRequest -Uri "https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe" -OutFile $PawnIoSetup -UseBasicParsing
+}
+Copy-Item -Path $PawnIoSetup -Destination (Join-Path $PublishDir "PawnIO_setup.exe") -Force
+Write-Host "PawnIO_setup.exe incluído no pacote." -ForegroundColor Cyan
+
 if (Test-Path $ReleasesDir) {
     Write-Host "Limpando pasta Releases (evita misturar versões antigas no upload)..." -ForegroundColor Cyan
     Remove-Item -Path (Join-Path $ReleasesDir "*") -Recurse -Force

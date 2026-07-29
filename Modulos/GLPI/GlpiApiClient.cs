@@ -193,6 +193,32 @@ public static class GlpiApiClient
             FetchGroqApiKeyFromPluginAsync,
             cancellationToken);
 
+    /// <summary>Envia inventário ao endpoint <c>PluginSistechubMachineInventory</c>.</summary>
+    public static Task<string> PostPluginSistechubMachineInventoryAsync(
+        AppUserSettings settings,
+        string jsonBody,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithGlpiSessionAsync(
+            settings,
+            (http, apiRoot, appToken, session, ct) =>
+                PostPluginSistechubMachineInventoryCoreAsync(http, apiRoot, appToken, session, jsonBody, ct),
+            cancellationToken);
+
+    /// <summary>Regista a máquina no plugin <c>PluginSistechubMachine</c> e devolve o <c>id</c> criado.</summary>
+    public static Task<int> PostPluginSistechubMachineAsync(
+        AppUserSettings settings,
+        string hostname,
+        int entidade,
+        string macadress,
+        string utilizadorDominio,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithGlpiSessionAsync(
+            settings,
+            (http, apiRoot, appToken, session, ct) =>
+                PostPluginSistechubMachineCoreAsync(
+                    http, apiRoot, appToken, session, hostname, entidade, macadress, utilizadorDominio, ct),
+            cancellationToken);
+
     /// <summary>Obtém o <c>id</c> do utilizador GLPI pelo login (<c>glpi_users.name</c>).</summary>
     public static Task<int?> GetUserIdByLoginAsync(
         AppUserSettings settings,
@@ -503,6 +529,83 @@ public static class GlpiApiClient
         }
 
         return apiKey.Trim();
+    }
+
+    static async Task<string> PostPluginSistechubMachineInventoryCoreAsync(
+        HttpClient http,
+        string apiRoot,
+        string appToken,
+        string sessionToken,
+        string jsonBody,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(jsonBody))
+            throw new InvalidOperationException("O payload de inventário está vazio.");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{apiRoot}/PluginSistechubMachineInventory");
+        req.Headers.TryAddWithoutValidation("App-Token", appToken);
+        req.Headers.TryAddWithoutValidation("Session-Token", sessionToken);
+        req.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+
+        using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(
+                "Endpoint de inventário não encontrado no GLPI (PluginSistechubMachineInventory).");
+        }
+
+        ThrowIfGlpiError(body, resp.IsSuccessStatusCode, (int)resp.StatusCode, "enviar inventário (plugin)");
+        return body;
+    }
+
+    static async Task<int> PostPluginSistechubMachineCoreAsync(
+        HttpClient http,
+        string apiRoot,
+        string appToken,
+        string sessionToken,
+        string hostname,
+        int entidade,
+        string macadress,
+        string utilizadorDominio,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(hostname))
+            throw new InvalidOperationException("Hostname inválido para registo da máquina.");
+        if (entidade < 1)
+            throw new InvalidOperationException("Entidade inválida para registo da máquina.");
+        if (string.IsNullOrWhiteSpace(macadress))
+            throw new InvalidOperationException("MAC address inválido para registo da máquina.");
+
+        var payload = new Dictionary<string, object>
+        {
+            ["input"] = new Dictionary<string, object>
+            {
+                ["hostname"] = hostname.Trim(),
+                ["entidade"] = entidade,
+                ["macadress"] = macadress.Trim(),
+                ["utilizador_dominio"] = (utilizadorDominio ?? "").Trim(),
+            },
+        };
+
+        var json = JsonSerializer.Serialize(payload);
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{apiRoot}/PluginSistechubMachine");
+        req.Headers.TryAddWithoutValidation("App-Token", appToken);
+        req.Headers.TryAddWithoutValidation("Session-Token", sessionToken);
+        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(
+                "Endpoint de máquinas não encontrado no GLPI (PluginSistechubMachine).");
+        }
+
+        ThrowIfGlpiError(body, resp.IsSuccessStatusCode, (int)resp.StatusCode, "registar máquina (plugin)");
+        return ParseCreatedIdFromBody(body, "PluginSistechubMachine");
     }
 
     static string? TryExtractGroqApiKeyFromPluginJson(string body)

@@ -33,6 +33,7 @@ static class ServiceSetupCommands
             SetServiceDescription();
             ConfigureServiceRecovery();
             StartService();
+            PawnIoInstaller.EnsureInstalled(Path.GetDirectoryName(serviceExePath));
             ServiceLogWriter.Info("Setup", "Serviço instalado e iniciado.");
             return 0;
         }
@@ -60,6 +61,7 @@ static class ServiceSetupCommands
 
             ConfigureServiceBinaryPath(serviceExePath);
             StartService();
+            PawnIoInstaller.EnsureInstalled(Path.GetDirectoryName(serviceExePath));
             ServiceLogWriter.Info("Setup", "Serviço actualizado e activo.");
             return 0;
         }

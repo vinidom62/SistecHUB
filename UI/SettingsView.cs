@@ -1,18 +1,28 @@
+using System.IO;
 using SistecHub.Core;
 using SistecHub.Modulos.GLPI;
+using SistecHub.Modulos.Inventario;
 
 namespace SistecHub.UI;
 
 internal sealed class SettingsView : UserControl
 {
+    const string LockGlyph = "\uE72E";
+    const string UnlockGlyph = "\uE785";
+
     readonly ComboBox _entityComboBox;
     readonly TextBox _glpiUserTokenTextBox;
+    readonly TextBox _glpiMachineIdTextBox;
+    readonly Label _machineIdLockButton;
     readonly Label _updateStatusLabel;
-    readonly Button _installUpdateButton;
+    readonly Button _checkUpdateButton;
+    readonly Button _checkBetaUpdateButton;
+    readonly Button _enviarInventarioBtn;
     readonly Button _saveButton;
     readonly Label _feedbackLabel;
 
     int _persistedEntityId;
+    bool _machineIdUnlocked;
 
     public SettingsView()
     {
@@ -60,29 +70,9 @@ internal sealed class SettingsView : UserControl
             Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point),
             ForeColor = ShellTheme.TextMuted,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 10),
+            Margin = new Padding(0, 0, 0, 16),
         };
         stack.Controls.Add(_updateStatusLabel);
-
-        _installUpdateButton = new Button
-        {
-            Text = "Verificar atualização",
-            AutoSize = true,
-            Height = 36,
-            Padding = new Padding(16, 0, 16, 0),
-            Margin = new Padding(0, 0, 0, 24),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.White,
-            BackColor = ShellTheme.Accent,
-            Cursor = Cursors.Hand,
-            Enabled = AppUpdateService.IsUpdateSupported,
-        };
-        _installUpdateButton.FlatAppearance.BorderSize = 0;
-        _installUpdateButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
-        _installUpdateButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
-        _installUpdateButton.Click += async (_, _) => await OnInstallUpdateClickedAsync();
-        stack.Controls.Add(_installUpdateButton);
 
         if (!AppUpdateService.IsUpdateSupported)
         {
@@ -97,13 +87,64 @@ internal sealed class SettingsView : UserControl
             });
         }
 
+        var updateBtnRow = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 0, 0, 16),
+        };
+
+        _checkUpdateButton = new Button
+        {
+            Text = "Verificar atualizações",
+            AutoSize = true,
+            Height = 36,
+            Padding = new Padding(16, 0, 16, 0),
+            Margin = new Padding(0, 0, 8, 8),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = Color.White,
+            BackColor = ShellTheme.Accent,
+            Cursor = Cursors.Hand,
+            Enabled = AppUpdateService.IsUpdateSupported,
+        };
+        _checkUpdateButton.FlatAppearance.BorderSize = 0;
+        _checkUpdateButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
+        _checkUpdateButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
+        _checkUpdateButton.Click += async (_, _) => await OnCheckUpdateClickedAsync(includePrerelease: false);
+
+        _checkBetaUpdateButton = new Button
+        {
+            Text = "Verificar atualização Beta",
+            AutoSize = true,
+            Height = 36,
+            Padding = new Padding(16, 0, 16, 0),
+            Margin = new Padding(0, 0, 0, 8),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.Accent,
+            BackColor = Color.White,
+            Cursor = Cursors.Hand,
+            Enabled = AppUpdateService.IsUpdateSupported,
+        };
+        _checkBetaUpdateButton.FlatAppearance.BorderSize = 1;
+        _checkBetaUpdateButton.FlatAppearance.BorderColor = ShellTheme.Accent;
+        _checkBetaUpdateButton.Click += async (_, _) => await OnCheckUpdateClickedAsync(includePrerelease: true);
+
+        updateBtnRow.Controls.Add(_checkUpdateButton);
+        updateBtnRow.Controls.Add(_checkBetaUpdateButton);
+        stack.Controls.Add(updateBtnRow);
+
         var debugModeButton = new Button
         {
             Text = "Modo Debug",
             AutoSize = true,
             Height = 32,
             Padding = new Padding(14, 0, 14, 0),
-            Margin = new Padding(0, 0, 0, 24),
+            Margin = new Padding(0, 0, 0, 16),
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
             ForeColor = ShellTheme.TextPrimary,
@@ -115,23 +156,54 @@ internal sealed class SettingsView : UserControl
         debugModeButton.Click += (_, _) => DebugConsoleWindow.ShowOrActivate(FindForm());
         stack.Controls.Add(debugModeButton);
 
-        var viewUpdateLogButton = new Button
+        var inventoryBtnRow = new FlowLayoutPanel
         {
-            Text = "Ver log de atualização",
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
             AutoSize = true,
-            Height = 32,
-            Padding = new Padding(14, 0, 14, 0),
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Color.Transparent,
             Margin = new Padding(0, 0, 0, 24),
+        };
+
+        var exportBtn = new Button
+        {
+            Text = "Exportar relatório JSON",
+            AutoSize = true,
+            Height = 36,
+            Padding = new Padding(16, 0, 16, 0),
+            Margin = new Padding(0, 0, 8, 0),
             FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            BackColor = Color.FromArgb(241, 245, 249),
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = Color.White,
+            BackColor = ShellTheme.Accent,
             Cursor = Cursors.Hand,
         };
-        viewUpdateLogButton.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
-        viewUpdateLogButton.FlatAppearance.BorderSize = 1;
-        viewUpdateLogButton.Click += (_, _) => ShowUpdateLog();
-        stack.Controls.Add(viewUpdateLogButton);
+        exportBtn.FlatAppearance.BorderSize = 0;
+        exportBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
+        exportBtn.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
+        exportBtn.Click += (_, _) => _ = ExportRelatorioJsonAsync();
+
+        _enviarInventarioBtn = new Button
+        {
+            Text = "Enviar inventário ao servidor",
+            AutoSize = true,
+            Height = 36,
+            Padding = new Padding(16, 0, 16, 0),
+            Margin = new Padding(0),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.Accent,
+            BackColor = Color.White,
+            Cursor = Cursors.Hand,
+        };
+        _enviarInventarioBtn.FlatAppearance.BorderSize = 1;
+        _enviarInventarioBtn.FlatAppearance.BorderColor = ShellTheme.Accent;
+        _enviarInventarioBtn.Click += (_, _) => _ = EnviarInventarioServidorAsync();
+
+        inventoryBtnRow.Controls.Add(exportBtn);
+        inventoryBtnRow.Controls.Add(_enviarInventarioBtn);
+        stack.Controls.Add(inventoryBtnRow);
 
         stack.Controls.Add(MakeFieldLabel("User token"));
         _glpiUserTokenTextBox = MakeWideTextBox();
@@ -152,6 +224,46 @@ internal sealed class SettingsView : UserControl
         _entityComboBox.Dock = DockStyle.Fill;
         entityHost.Controls.Add(_entityComboBox);
         stack.Controls.Add(entityHost);
+
+        stack.Controls.Add(MakeSectionGap());
+
+        var machineIdLabelRow = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 12, 0, 6),
+        };
+        machineIdLabelRow.Controls.Add(new Label
+        {
+            Text = "ID da máquina (plugin Inventário)",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextPrimary,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 2, 8, 0),
+        });
+
+        _machineIdLockButton = new Label
+        {
+            Text = LockGlyph,
+            AutoSize = true,
+            Font = new Font("Segoe MDL2 Assets", 14F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.Accent,
+            BackColor = Color.Transparent,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(0, 0, 0, 0),
+        };
+        _machineIdLockButton.Click += (_, _) => OnMachineIdLockClicked();
+        machineIdLabelRow.Controls.Add(_machineIdLockButton);
+        stack.Controls.Add(machineIdLabelRow);
+
+        _glpiMachineIdTextBox = MakeWideTextBox();
+        _glpiMachineIdTextBox.ReadOnly = true;
+        _glpiMachineIdTextBox.BackColor = Color.FromArgb(241, 245, 249);
+        stack.Controls.Add(_glpiMachineIdTextBox);
 
         _saveButton = new Button
         {
@@ -188,39 +300,82 @@ internal sealed class SettingsView : UserControl
         Controls.Add(stack);
 
         Load += OnViewLoad;
+        VisibleChanged += OnVisibleChanged;
+        HandleDestroyed += OnHandleDestroyed;
     }
 
-    async Task OnInstallUpdateClickedAsync()
+    void OnHandleDestroyed(object? sender, EventArgs e)
     {
-        _installUpdateButton.Enabled = false;
+        HandleDestroyed -= OnHandleDestroyed;
+        VisibleChanged -= OnVisibleChanged;
+    }
+
+    void OnVisibleChanged(object? sender, EventArgs e)
+    {
+        if (!Visible)
+            LockMachineIdField();
+    }
+
+    void OnMachineIdLockClicked()
+    {
+        if (_machineIdUnlocked)
+        {
+            LockMachineIdField();
+            return;
+        }
+
+        using var warning = new MachineIdEditWarningForm();
+        if (warning.ShowDialog(FindForm()) != DialogResult.OK)
+            return;
+
+        UnlockMachineIdField();
+    }
+
+    void UnlockMachineIdField()
+    {
+        _machineIdUnlocked = true;
+        _glpiMachineIdTextBox.ReadOnly = false;
+        _glpiMachineIdTextBox.BackColor = SystemColors.Window;
+        _machineIdLockButton.Text = UnlockGlyph;
+        _machineIdLockButton.ForeColor = Color.FromArgb(185, 28, 28);
+    }
+
+    void LockMachineIdField()
+    {
+        _machineIdUnlocked = false;
+        _glpiMachineIdTextBox.ReadOnly = true;
+        _glpiMachineIdTextBox.BackColor = Color.FromArgb(241, 245, 249);
+        _machineIdLockButton.Text = LockGlyph;
+        _machineIdLockButton.ForeColor = ShellTheme.Accent;
+    }
+
+    void RefreshUpdateStatusLabel() =>
+        _updateStatusLabel.Text = AppUpdateService.GetUpdateStatusText();
+
+    async Task OnCheckUpdateClickedAsync(bool includePrerelease)
+    {
+        _checkUpdateButton.Enabled = false;
+        _checkBetaUpdateButton.Enabled = false;
         var host = FindForm();
         if (host is not null)
             host.UseWaitCursor = true;
         try
         {
             RefreshUpdateStatusLabel();
-            await AppUpdateService.CheckForUpdatesManuallyAsync(host).ConfigureAwait(true);
+            if (includePrerelease)
+                await AppUpdateService.CheckForBetaUpdatesManuallyAsync(host).ConfigureAwait(true);
+            else
+                await AppUpdateService.CheckForUpdatesManuallyAsync(host).ConfigureAwait(true);
         }
         finally
         {
             RefreshUpdateStatusLabel();
-            _installUpdateButton.Enabled = AppUpdateService.IsUpdateSupported;
+            var supported = AppUpdateService.IsUpdateSupported;
+            _checkUpdateButton.Enabled = supported;
+            _checkBetaUpdateButton.Enabled = supported;
             if (host is not null)
                 host.UseWaitCursor = false;
         }
-    }
-
-    void RefreshUpdateStatusLabel() =>
-        _updateStatusLabel.Text = AppUpdateService.GetUpdateStatusText();
-
-    static void ShowUpdateLog()
-    {
-        var tail = UpdateActivityLog.ReadTail(50);
-        MessageBox.Show(
-            tail,
-            "Log de atualização (update.log)",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
     }
 
     static Label MakeFieldLabel(string text) =>
@@ -255,8 +410,10 @@ internal sealed class SettingsView : UserControl
     {
         Load -= OnViewLoad;
         RefreshUpdateStatusLabel();
+        LockMachineIdField();
         var settings = AppSettingsStore.Load();
         _glpiUserTokenTextBox.Text = settings.GlpiUserToken ?? "";
+        _glpiMachineIdTextBox.Text = settings.GlpiMachineId ?? "";
         _persistedEntityId = ParseEntityId(settings.EntityId);
         ApplySavedEntityPlaceholder();
         await LoadEntityComboAsync(settings).ConfigureAwait(true);
@@ -349,6 +506,111 @@ internal sealed class SettingsView : UserControl
         return ParseEntityId(AppSettingsStore.Load().EntityId);
     }
 
+    async Task ExportRelatorioJsonAsync()
+    {
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Guardar relatório de inventário",
+            Filter = "JSON (*.json)|*.json|Todos os ficheiros (*.*)|*.*",
+            DefaultExt = "json",
+            FileName = $"inventario-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmmss}.json",
+            OverwritePrompt = true,
+        };
+
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        try
+        {
+            InventarioServiceCoordinator.RequestRefresh();
+            string? json = null;
+            for (var i = 0; i < 30; i++)
+            {
+                json = InventarioServiceCoordinator.TryReadReportJson();
+                if (!string.IsNullOrWhiteSpace(json))
+                    break;
+                await Task.Delay(1000).ConfigureAwait(true);
+            }
+
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                throw new InvalidOperationException(
+                    "O serviço ainda não disponibilizou o inventário. Verifique se o SistecHub Service está em execução.");
+            }
+
+            await File.WriteAllTextAsync(dlg.FileName, json).ConfigureAwait(true);
+
+            MessageBox.Show(
+                this,
+                $"Relatório guardado em:\n{dlg.FileName}",
+                "Inventário",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            UserFacingErrorHelper.ShowErrorFromException(this, ex);
+        }
+    }
+
+    async Task EnviarInventarioServidorAsync()
+    {
+        if (IsDisposed || !IsHandleCreated)
+            return;
+
+        _enviarInventarioBtn.Enabled = false;
+        try
+        {
+            var before = InventarioServiceCoordinator.TryReadStatus()?.LastUploadUtc;
+            InventarioServiceCoordinator.RequestUpload();
+
+            InventarioServiceStatus? status = null;
+            for (var i = 0; i < 90; i++)
+            {
+                await Task.Delay(1000).ConfigureAwait(true);
+                if (IsDisposed)
+                    return;
+
+                status = InventarioServiceCoordinator.TryReadStatus();
+                if (status is null)
+                    continue;
+
+                if (status.Phase == InventarioServicePhase.Error)
+                {
+                    throw new InvalidOperationException(
+                        string.IsNullOrWhiteSpace(status.Message)
+                            ? "Falha ao enviar inventário pelo serviço."
+                            : status.Message);
+                }
+
+                if (status.LastUploadUtc is { } uploaded
+                    && (before is null || uploaded > before))
+                {
+                    MessageBox.Show(
+                        this,
+                        "Inventário enviado com sucesso pelo serviço.",
+                        "Inventário",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException(
+                "Tempo esgotado à espera do serviço. Verifique se o SistecHub Service está em execução.");
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+                UserFacingErrorHelper.ShowErrorFromException(this, ex);
+        }
+        finally
+        {
+            if (IsHandleCreated && !_enviarInventarioBtn.IsDisposed)
+                _enviarInventarioBtn.Enabled = true;
+        }
+    }
+
     async Task OnSaveClickedAsync()
     {
         _saveButton.Enabled = false;
@@ -367,6 +629,7 @@ internal sealed class SettingsView : UserControl
             var merged = AppSettingsStore.Load();
             merged.EntityId = entityId.ToString();
             merged.GlpiUserToken = _glpiUserTokenTextBox.Text.Trim();
+            merged.GlpiMachineId = _glpiMachineIdTextBox.Text.Trim();
             _persistedEntityId = entityId;
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));

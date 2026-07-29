@@ -37,7 +37,7 @@ static class Program
 
 
         builder.Services.AddSingleton<UpdateCheckWorker>();
-
+        builder.Services.AddSingleton<InventarioWorker>();
         builder.Services.AddHostedService<SistecHubWorker>();
 
 

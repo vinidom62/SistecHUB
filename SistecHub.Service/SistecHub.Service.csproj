@@ -1,66 +1,59 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
-
-
   <PropertyGroup>
-
     <TargetFramework>net8.0-windows</TargetFramework>
-
     <Nullable>enable</Nullable>
-
     <ImplicitUsings>enable</ImplicitUsings>
-
     <RootNamespace>SistecHub.Service</RootNamespace>
-
     <AssemblyName>SistecHub.Service</AssemblyName>
-
     <Version>1.6.0</Version>
-
   </PropertyGroup>
 
-
-
   <ItemGroup>
-
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
-
+    <PackageReference Include="System.Management" Version="10.0.2" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="Velopack" Version="1.0.1" />
-
   </ItemGroup>
 
-
-
   <ItemGroup>
-
     <Compile Include="..\Core\AppReleaseConfig.cs" Link="Shared\AppReleaseConfig.cs" />
-
     <Compile Include="..\Core\AppVersion.cs" Link="Shared\AppVersion.cs" />
-
+    <Compile Include="..\Core\AppSettingsStore.cs" Link="Shared\AppSettingsStore.cs" />
+    <Compile Include="..\Core\SecureCredentialStore.cs" Link="Shared\SecureCredentialStore.cs" />
     <Compile Include="..\Core\PerMachineUpdatePermissions.cs" Link="Shared\PerMachineUpdatePermissions.cs" />
-
     <Compile Include="..\Core\SharedMachineStorage.cs" Link="Shared\SharedMachineStorage.cs" />
-
     <Compile Include="..\Core\FileSystemAclHelper.cs" Link="Shared\FileSystemAclHelper.cs" />
-
     <Compile Include="..\Core\WindowsServiceConfig.cs" Link="Shared\WindowsServiceConfig.cs" />
-
     <Compile Include="..\Core\ServiceLogWriter.cs" Link="Shared\ServiceLogWriter.cs" />
-
     <Compile Include="..\Core\SistecHubAppProcess.cs" Link="Shared\SistecHubAppProcess.cs" />
-
     <Compile Include="..\Core\UpdateServiceCoordinator.cs" Link="Shared\UpdateServiceCoordinator.cs" />
-
+    <Compile Include="..\Core\InventarioServiceCoordinator.cs" Link="Shared\InventarioServiceCoordinator.cs" />
+    <Compile Include="..\Core\PawnIoInstaller.cs" Link="Shared\PawnIoInstaller.cs" />
     <Compile Include="..\Core\UpdateActivityLog.cs" Link="Shared\UpdateActivityLog.cs" />
-
     <Compile Include="..\Core\VelopackUpdateEngine.cs" Link="Shared\VelopackUpdateEngine.cs" />
-
     <Compile Include="..\Core\VelopackInstallLocator.cs" Link="Shared\VelopackInstallLocator.cs" />
     <Compile Include="..\Core\InteractiveUserAppLauncher.cs" Link="Shared\InteractiveUserAppLauncher.cs" />
     <Compile Include="..\Core\PostUpdateAppReopen.cs" Link="Shared\PostUpdateAppReopen.cs" />
 
+    <Compile Include="..\Modulos\GLPI\GlpiApiClient.cs" Link="Shared\GlpiApiClient.cs" />
+    <Compile Include="..\Modulos\GLPI\GlpiTicketCounts.cs" Link="Shared\GlpiTicketCounts.cs" />
+    <Compile Include="..\Modulos\GLPI\GlpiTicketSummary.cs" Link="Shared\GlpiTicketSummary.cs" />
+    <Compile Include="..\Modulos\Inventario\InventarioHardwareReader.cs" Link="Shared\Inventario\InventarioHardwareReader.cs" />
+    <Compile Include="..\Modulos\Inventario\InventarioMonitorOsReader.cs" Link="Shared\Inventario\InventarioMonitorOsReader.cs" />
+    <Compile Include="..\Modulos\Inventario\InventarioPostoReader.cs" Link="Shared\Inventario\InventarioPostoReader.cs" />
+    <Compile Include="..\Modulos\Inventario\InventarioAcessoRemotoReader.cs" Link="Shared\Inventario\InventarioAcessoRemotoReader.cs" />
+    <Compile Include="..\Modulos\Inventario\InventarioRelatorioJson.cs" Link="Shared\Inventario\InventarioRelatorioJson.cs" />
+    <Compile Include="..\Modulos\Inventario\InventarioGlpiInventoryUpload.cs" Link="Shared\Inventario\InventarioGlpiInventoryUpload.cs" />
+    <Compile Include="..\Modulos\Inventario\InventarioMachineRegistration.cs" Link="Shared\Inventario\InventarioMachineRegistration.cs" />
   </ItemGroup>
 
-
+  <ItemGroup>
+    <None Include="..\ThirdParty\PawnIO\PawnIO_setup.exe"
+          Link="PawnIO_setup.exe"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\ThirdParty\PawnIO\PawnIO_setup.exe')" />
+  </ItemGroup>
 
 </Project>
-

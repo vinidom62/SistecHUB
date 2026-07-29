@@ -31,7 +31,7 @@ public static class AppUpdateService
         StartBackgroundMonitor(owner, manualFlow: false);
     }
 
-    /// <summary>Verificação manual iniciada nas Configurações.</summary>
+    /// <summary>Verificação manual iniciada nas Configurações (releases estáveis).</summary>
     public static async Task CheckForUpdatesManuallyAsync(
         IWin32Window? owner,
         CancellationToken cancellationToken = default)
@@ -41,15 +41,36 @@ public static class AppUpdateService
             MessageBox.Show(
                 owner,
                 "Atualizações só estão disponíveis na instalação MSI (Program Files).",
-                "Verificar atualização",
+                "Verificar atualizações",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
             return;
         }
 
-        UpdateActivityLog.Info("Update", "Utilizador clicou em «Verificar actualização».");
+        UpdateActivityLog.Info("Update", "Utilizador clicou em «Verificar atualizações».");
         UpdateServiceCoordinator.RequestImmediateCheck();
-        await WaitForCheckResultAsync(owner, cancellationToken).ConfigureAwait(true);
+        await WaitForCheckResultAsync(owner, includePrerelease: false, cancellationToken).ConfigureAwait(true);
+    }
+
+    /// <summary>Verificação manual de pré-releases — nunca usada pela verificação automática.</summary>
+    public static async Task CheckForBetaUpdatesManuallyAsync(
+        IWin32Window? owner,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsUpdateSupported)
+        {
+            MessageBox.Show(
+                owner,
+                "Atualizações só estão disponíveis na instalação MSI (Program Files).",
+                "Verificar atualização Beta",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        UpdateActivityLog.Info("Update", "Utilizador clicou em «Verificar atualização Beta».");
+        UpdateServiceCoordinator.RequestImmediateBetaCheck();
+        await WaitForCheckResultAsync(owner, includePrerelease: true, cancellationToken).ConfigureAwait(true);
     }
 
     static void StartBackgroundMonitor(IWin32Window? owner, bool manualFlow)
@@ -65,7 +86,12 @@ public static class AppUpdateService
         {
             try
             {
-                await MonitorUntilSettledAsync(owner, manualFlow, TimeSpan.FromMinutes(10), CancellationToken.None)
+                await MonitorUntilSettledAsync(
+                        owner,
+                        manualFlow,
+                        includePrerelease: false,
+                        TimeSpan.FromMinutes(10),
+                        CancellationToken.None)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -80,9 +106,18 @@ public static class AppUpdateService
         });
     }
 
-    static async Task WaitForCheckResultAsync(IWin32Window? owner, CancellationToken cancellationToken)
+    static async Task WaitForCheckResultAsync(
+        IWin32Window? owner,
+        bool includePrerelease,
+        CancellationToken cancellationToken)
     {
-        var result = await MonitorUntilSettledAsync(owner, manualFlow: true, TimeSpan.FromMinutes(3), cancellationToken)
+        var title = includePrerelease ? "Verificar atualização Beta" : "Verificar atualizações";
+        var result = await MonitorUntilSettledAsync(
+                owner,
+                manualFlow: true,
+                includePrerelease,
+                TimeSpan.FromMinutes(3),
+                cancellationToken)
             .ConfigureAwait(true);
 
         if (result == MonitorResult.TimedOut)
@@ -92,7 +127,7 @@ public static class AppUpdateService
                 "A verificação demorou demais.\n\n"
                 + "Confirme que «SistecHub Service» está em execução.\n\n"
                 + "Log: " + UpdateActivityLog.LogFilePath,
-                "Verificar atualização",
+                title,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
@@ -107,11 +142,13 @@ public static class AppUpdateService
     static async Task<MonitorResult> MonitorUntilSettledAsync(
         IWin32Window? owner,
         bool manualFlow,
+        bool includePrerelease,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
         UpdateServicePhase? lastPhase = UpdateServiceCoordinator.TryReadStatus()?.Phase;
         var deadline = DateTime.UtcNow + timeout;
+        var title = includePrerelease ? "Verificar atualização Beta" : "Verificar atualizações";
 
         while (DateTime.UtcNow < deadline)
         {
@@ -135,10 +172,13 @@ public static class AppUpdateService
             {
                 if (manualFlow)
                 {
+                    var message = includePrerelease
+                        ? $"Não há pré-releases mais recentes.\nVersão actual: {DisplayVersion}."
+                        : $"O SistecHub já está na versão mais recente ({DisplayVersion}).";
                     MessageBox.Show(
                         owner,
-                        $"O SistecHub já está na versão mais recente ({DisplayVersion}).",
-                        "Verificar atualização",
+                        message,
+                        title,
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);
                 }
@@ -153,7 +193,7 @@ public static class AppUpdateService
                     MessageBox.Show(
                         owner,
                         status.Message + "\n\nDetalhes em:\n" + UpdateActivityLog.LogFilePath,
-                        "Verificar atualização",
+                        title,
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                 }

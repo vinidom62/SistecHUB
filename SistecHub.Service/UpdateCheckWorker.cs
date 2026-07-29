@@ -29,6 +29,7 @@ public sealed class UpdateCheckWorker
         {
             var installRequested = UpdateServiceCoordinator.TryConsumeInstallRequest();
             var checkRequested = UpdateServiceCoordinator.TryConsumeCheckRequest();
+            var betaCheckRequested = UpdateServiceCoordinator.TryConsumeBetaCheckRequest();
             var shouldApplyPending = ShouldApplyPendingNow();
             var automaticDue = DateTime.UtcNow - lastAutomaticCheck >= CheckInterval;
 
@@ -36,18 +37,26 @@ public sealed class UpdateCheckWorker
                 UpdateActivityLog.Info("Update", "Pedido de instalação recebido do utilizador.");
 
             if (checkRequested)
-                UpdateActivityLog.Info("Update", "Pedido de verificação recebido.");
+                UpdateActivityLog.Info("Update", "Pedido de verificação estável recebido.");
+
+            if (betaCheckRequested)
+                UpdateActivityLog.Info("Update", "Pedido de verificação Beta (pré-releases) recebido.");
 
             if (shouldApplyPending)
                 UpdateActivityLog.Info("Update", "Actualização pendente detectada — app fechado, a aplicar.");
 
-            var shouldRun = installRequested || checkRequested || shouldApplyPending || automaticDue;
+            var shouldRun = installRequested || checkRequested || betaCheckRequested
+                || shouldApplyPending || automaticDue;
 
             if (shouldRun)
             {
                 try
                 {
-                    await RunCycleAsync(installRequested || shouldApplyPending, stoppingToken)
+                    // Pré-releases só no botão Beta — automático/estável nunca incluem beta.
+                    await RunCycleAsync(
+                            userInstallFlow: installRequested || shouldApplyPending || betaCheckRequested || checkRequested,
+                            includePrerelease: betaCheckRequested,
+                            stoppingToken)
                         .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -61,11 +70,15 @@ public sealed class UpdateCheckWorker
                     WriteStatus(UpdateServicePhase.Error, ex.Message);
                 }
 
-                if (automaticDue && !installRequested && !checkRequested && !shouldApplyPending)
+                if (automaticDue
+                    && !installRequested
+                    && !checkRequested
+                    && !betaCheckRequested
+                    && !shouldApplyPending)
                     lastAutomaticCheck = DateTime.UtcNow;
             }
 
-            var wait = installRequested || checkRequested || shouldApplyPending
+            var wait = installRequested || checkRequested || betaCheckRequested || shouldApplyPending
                 ? TimeSpan.FromSeconds(10)
                 : CheckInterval;
 
@@ -101,7 +114,7 @@ public sealed class UpdateCheckWorker
             $"Velopack={VelopackUpdateEngine.IsInstalled} | Versão={VelopackUpdateEngine.DisplayVersion} | Exe={Environment.ProcessPath}");
     }
 
-    async Task RunCycleAsync(bool userInstallFlow, CancellationToken cancellationToken)
+    async Task RunCycleAsync(bool userInstallFlow, bool includePrerelease, CancellationToken cancellationToken)
     {
         if (!VelopackUpdateEngine.IsInstalled)
         {
@@ -111,8 +124,12 @@ public sealed class UpdateCheckWorker
             return;
         }
 
-        UpdateActivityLog.Info("Update", "A iniciar ciclo de actualização.");
-        WriteStatus(UpdateServicePhase.Checking, "A verificar actualizações...", VelopackUpdateEngine.DisplayVersion);
+        var channel = includePrerelease ? "Beta (pré-releases)" : "estável";
+        UpdateActivityLog.Info("Update", $"A iniciar ciclo de actualização ({channel}).");
+        WriteStatus(
+            UpdateServicePhase.Checking,
+            includePrerelease ? "A verificar atualizações Beta..." : "A verificar actualizações...",
+            VelopackUpdateEngine.DisplayVersion);
 
         if (VelopackUpdateEngine.PendingRestart is { } pending)
         {
@@ -124,7 +141,9 @@ public sealed class UpdateCheckWorker
         UpdateInfo? update;
         try
         {
-            update = await VelopackUpdateEngine.CheckForUpdatesAsync(cancellationToken).ConfigureAwait(false);
+            update = await VelopackUpdateEngine
+                .CheckForUpdatesAsync(includePrerelease, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -137,19 +156,29 @@ public sealed class UpdateCheckWorker
         if (update is null)
         {
             _logger.LogInformation("Sem actualizações — versão {Version}.", VelopackUpdateEngine.DisplayVersion);
-            UpdateActivityLog.Info("Update", $"Sem actualizações — versão {VelopackUpdateEngine.DisplayVersion}.");
+            UpdateActivityLog.Info(
+                "Update",
+                $"Sem actualizações ({channel}) — versão {VelopackUpdateEngine.DisplayVersion}.");
             WriteStatus(
                 UpdateServicePhase.UpToDate,
-                userInstallFlow ? "Já está na versão mais recente." : "Versão actual instalada.",
+                includePrerelease
+                    ? "Sem pré-releases mais recentes."
+                    : userInstallFlow
+                        ? "Já está na versão mais recente."
+                        : "Versão actual instalada.",
                 VelopackUpdateEngine.DisplayVersion);
             return;
         }
 
         var newVersion = update.TargetFullRelease.Version.ToString();
-        UpdateActivityLog.Info("Update", $"Nova versão encontrada: {newVersion} (actual: {VelopackUpdateEngine.DisplayVersion}).");
+        UpdateActivityLog.Info(
+            "Update",
+            $"Nova versão encontrada ({channel}): {newVersion} (actual: {VelopackUpdateEngine.DisplayVersion}).");
         WriteStatus(
             UpdateServicePhase.Downloading,
-            $"A transferir versão {newVersion}...",
+            includePrerelease
+                ? $"A transferir versão Beta {newVersion}..."
+                : $"A transferir versão {newVersion}...",
             VelopackUpdateEngine.DisplayVersion,
             newVersion);
 
@@ -157,6 +186,7 @@ public sealed class UpdateCheckWorker
         {
             await VelopackUpdateEngine.DownloadUpdatesAsync(
                 update,
+                includePrerelease,
                 progress: p =>
                 {
                     if (p is 0 or 25 or 50 or 75 or 100)

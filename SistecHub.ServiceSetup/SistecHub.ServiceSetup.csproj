@@ -1,50 +1,33 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-
-
   <PropertyGroup>
-
     <OutputType>WinExe</OutputType>
-
     <TargetFramework>net8.0-windows</TargetFramework>
-
     <Nullable>enable</Nullable>
-
     <ImplicitUsings>enable</ImplicitUsings>
-
     <RootNamespace>SistecHub.ServiceSetup</RootNamespace>
-
     <AssemblyName>SistecHub.ServiceSetup</AssemblyName>
-
     <ApplicationManifest>app.manifest</ApplicationManifest>
-
     <Version>1.6.0</Version>
-
   </PropertyGroup>
 
-
-
   <ItemGroup>
-
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
-
   </ItemGroup>
-
-
 
   <ItemGroup>
-
     <Compile Include="..\Core\WindowsServiceConfig.cs" Link="Shared\WindowsServiceConfig.cs" />
-
     <Compile Include="..\Core\SharedMachineStorage.cs" Link="Shared\SharedMachineStorage.cs" />
-
     <Compile Include="..\Core\FileSystemAclHelper.cs" Link="Shared\FileSystemAclHelper.cs" />
-
     <Compile Include="..\Core\ServiceLogWriter.cs" Link="Shared\ServiceLogWriter.cs" />
-
+    <Compile Include="..\Core\PawnIoInstaller.cs" Link="Shared\PawnIoInstaller.cs" />
   </ItemGroup>
 
-
+  <ItemGroup>
+    <None Include="..\ThirdParty\PawnIO\PawnIO_setup.exe"
+          Link="PawnIO_setup.exe"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\ThirdParty\PawnIO\PawnIO_setup.exe')" />
+  </ItemGroup>
 
 </Project>
-

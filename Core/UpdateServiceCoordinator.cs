@@ -14,6 +14,10 @@ public static class UpdateServiceCoordinator
     public static string RequestFilePath =>
         Path.Combine(SharedMachineStorage.RootPath, "update-check.request");
 
+    /// <summary>Pedido manual para incluir pré-releases (beta) na verificação Velopack.</summary>
+    public static string BetaRequestFilePath =>
+        Path.Combine(SharedMachineStorage.RootPath, "update-check-beta.request");
+
     public static string InstallRequestFilePath =>
         Path.Combine(SharedMachineStorage.RootPath, "update-install.request");
 
@@ -42,6 +46,13 @@ public static class UpdateServiceCoordinator
     {
         SharedMachineStorage.EnsureDirectory();
         File.WriteAllText(RequestFilePath, DateTimeOffset.UtcNow.ToString("O"));
+    }
+
+    /// <summary>Só via botão manual — nunca usado pela verificação automática.</summary>
+    public static void RequestImmediateBetaCheck()
+    {
+        SharedMachineStorage.EnsureDirectory();
+        File.WriteAllText(BetaRequestFilePath, DateTimeOffset.UtcNow.ToString("O"));
     }
 
     /// <summary>Pedido explícito do utilizador para transferir e instalar a actualização.</summary>
@@ -92,7 +103,9 @@ public static class UpdateServiceCoordinator
     }
 
     public static bool HasPendingWorkRequest() =>
-        File.Exists(InstallRequestFilePath) || File.Exists(RequestFilePath);
+        File.Exists(InstallRequestFilePath)
+        || File.Exists(RequestFilePath)
+        || File.Exists(BetaRequestFilePath);
 
     public static bool IsInstallReady(UpdateServiceStatus? status) =>
         VelopackUpdateEngine.PendingRestart is not null
@@ -133,6 +146,22 @@ public static class UpdateServiceCoordinator
         try
         {
             File.Delete(RequestFilePath);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool TryConsumeBetaCheckRequest()
+    {
+        if (!File.Exists(BetaRequestFilePath))
+            return false;
+
+        try
+        {
+            File.Delete(BetaRequestFilePath);
             return true;
         }
         catch

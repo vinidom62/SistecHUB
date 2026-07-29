@@ -1,6 +1,7 @@
 using SistecHub.Core;
 using SistecHub.Modulos.GLPI;
 using SistecHub.Modulos.GLPI.Chamados;
+using SistecHub.Modulos.Inventario;
 
 namespace SistecHub.UI;
 
@@ -18,6 +19,7 @@ internal sealed class MainForm : Form
     readonly NotifyIcon _trayIcon;
 
     bool _exitRequested;
+    bool _machineRegistrationStarted;
     string _activePageId = "home";
     UserControl? _transitionOldPage;
     UserControl? _transitionNewPage;
@@ -217,8 +219,49 @@ internal sealed class MainForm : Form
             SyncFooterItemWidths();
             RefreshFooterEntityName();
             _ = PrefetchFooterEntityNameAsync();
+            InventarioSnapshotCoordinator.Start();
+            _ = EnsureMachineRegisteredOnStartupAsync();
         };
         Load += OnMainFormLoad;
+    }
+
+    async Task EnsureMachineRegisteredOnStartupAsync()
+    {
+        if (_machineRegistrationStarted || IsDisposed)
+            return;
+        _machineRegistrationStarted = true;
+
+        // Registo + coleta + upload correm no SistecHub.Service (elevado).
+        InventarioServiceCoordinator.RequestRefresh();
+        InventarioAutoUploadCoordinator.Start();
+
+        try
+        {
+            for (var i = 0; i < 45 && !IsDisposed; i++)
+            {
+                var createdId = InventarioSnapshotCoordinator.TryConsumeNewlyRegisteredMachineId();
+                if (createdId is int id)
+                {
+                    MessageBox.Show(
+                        this,
+                        $"Máquina inventáriada, ID: {id}",
+                        "Inventário",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                    return;
+                }
+
+                await Task.Delay(2000).ConfigureAwait(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed)
+            {
+                global::SistecHub.UserFacingErrorHelper.ShowErrorFromException(
+                    this, ex, "Inventário");
+            }
+        }
     }
 
     void OnMainFormLoad(object? sender, EventArgs e)
@@ -269,6 +312,9 @@ internal sealed class MainForm : Form
     void RequestExit()
     {
         AppUpdateService.SignalApplyOnExit();
+
+        InventarioAutoUploadCoordinator.Stop();
+        InventarioSnapshotCoordinator.Stop();
 
         _exitRequested = true;
         _trayIcon.Visible = false;

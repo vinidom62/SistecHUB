@@ -13,12 +13,17 @@ public sealed class AppUserSettings
 
     /// <summary>Chave API Groq (obtida do plugin GLPI; variável de ambiente <c>GROQ_API_KEY</c> tem prioridade).</summary>
     public string GroqApiKey { get; set; } = "";
+
+    /// <summary>Id do computador no plugin SistecHub Machines (GLPI).</summary>
+    public string GlpiMachineId { get; set; } = "";
 }
 
 /// <summary>Conteúdo público persistido em <c>settings.json</c> (sem credenciais).</summary>
 sealed class PersistedAppSettings
 {
     public string EntityId { get; set; } = "";
+
+    public string GlpiMachineId { get; set; } = "";
 }
 
 /// <summary>Carrega e grava <see cref="AppUserSettings"/>.</summary>
@@ -122,13 +127,17 @@ public static class AppSettingsStore
             normalized.GlpiUserToken,
             normalized.GroqApiKey);
 
-        WritePublicSettingsFile(normalized.EntityId);
+        WritePublicSettingsFile(normalized.EntityId, normalized.GlpiMachineId);
     }
 
-    static void WritePublicSettingsFile(string entityId)
+    static void WritePublicSettingsFile(string entityId, string glpiMachineId)
     {
         var json = JsonSerializer.Serialize(
-            new PersistedAppSettings { EntityId = entityId },
+            new PersistedAppSettings
+            {
+                EntityId = entityId,
+                GlpiMachineId = glpiMachineId ?? "",
+            },
             JsonOptions);
         File.WriteAllText(SettingsFilePath, json);
     }
@@ -145,7 +154,10 @@ public static class AppSettingsStore
             var json = File.ReadAllText(settingsPath);
             var parsed = JsonSerializer.Deserialize<PersistedAppSettings>(json, JsonOptions);
             if (parsed is not null)
+            {
                 settings.EntityId = parsed.EntityId ?? "";
+                settings.GlpiMachineId = parsed.GlpiMachineId ?? "";
+            }
 
             var legacySecrets = TryReadLegacySecrets(json);
             if (!string.IsNullOrEmpty(legacySecrets.GlpiUserToken)
@@ -171,7 +183,7 @@ public static class AppSettingsStore
         if (usedLegacySecrets && directory == SettingsDirectory)
             Save(settings);
         else if (needsSettingsSanitize)
-            WritePublicSettingsFile(settings.EntityId);
+            WritePublicSettingsFile(settings.EntityId, settings.GlpiMachineId);
 
         return settings;
     }
