@@ -111,26 +111,23 @@ internal static class InventarioHardwareReader
     /// <summary>Uma sessão <see cref="Computer"/> aberta: CPU, GPU, memória e placa-mãe.</summary>
     public static InventarioHardwareSnapshot ReadInventory()
     {
-        var computer = new Computer
-        {
-            IsCpuEnabled = true,
-            IsGpuEnabled = true,
-            IsMemoryEnabled = true,
-            IsMotherboardEnabled = true,
-            IsStorageEnabled = true,
-        };
+        // Storage (DiskInfoToolkit) é activado à parte: ReloadStorages() pode lançar e
+        // derrubar todo o Computer.Open() (ex.: certos SSDs) — ver FanControl #3693 / LHM issues.
+        var computer = CreateComputer(gpu: true, storage: false);
 
-        try
+        if (!TryOpenComputer(computer, "Computer.Open (cpu/gpu/mem/mb)"))
         {
-            computer.Open();
-        }
-        catch
-        {
-            return EmptySnapshot();
+            try { computer.Close(); } catch { /* ignore */ }
+
+            computer = CreateComputer(gpu: false, storage: false);
+            if (!TryOpenComputer(computer, "Computer.Open sem GPU"))
+                return EmptySnapshot();
         }
 
         try
         {
+            TryEnableStorage(computer);
+
             foreach (var hw in computer.Hardware)
                 UpdateRecursive(hw);
 
@@ -186,6 +183,10 @@ internal static class InventarioHardwareReader
     {
         var remoto = InventarioAcessoRemotoReader.ReadAcessoRemoto();
         var posto = InventarioPostoReader.ReadPostoTrabalho();
+        var monitores = InventarioMonitorOsReader.ReadMonitors();
+        var so = InventarioMonitorOsReader.ReadSistemaOperacional();
+        // Discos sem LHM: só WMI (lista LHM vazia → BuildDiscosRigidos usa Win32_DiskDrive).
+        var discos = BuildDiscosRigidos(Array.Empty<IHardware>());
         return new InventarioHardwareSnapshot(
             "—", "—", "—", "—",
             "Temperatura: —",
@@ -196,11 +197,50 @@ internal static class InventarioHardwareReader
             new ProcessadorDetalheInventario("—", null, null, null, null),
             new PlacaMaeDetalheInventario(null, null),
             Array.Empty<PlacaVideoDetalheInventario>(),
-            Array.Empty<DiscoRigidoInventario>(),
-            Array.Empty<MonitorInventario>(),
-            new SistemaOperacionalInventario("—", "—", "—", null),
+            discos,
+            monitores,
+            so,
             remoto,
             posto);
+    }
+
+    static Computer CreateComputer(bool gpu, bool storage) =>
+        new()
+        {
+            IsCpuEnabled = true,
+            IsGpuEnabled = gpu,
+            IsMemoryEnabled = true,
+            IsMotherboardEnabled = true,
+            IsStorageEnabled = storage,
+        };
+
+    static bool TryOpenComputer(Computer computer, string context)
+    {
+        try
+        {
+            computer.Open();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SistecHub.Core.ServiceLogWriter.LogException("Inventario", ex, $"LHM {context} falhou.");
+            return false;
+        }
+    }
+
+    static void TryEnableStorage(Computer computer)
+    {
+        try
+        {
+            computer.IsStorageEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            SistecHub.Core.ServiceLogWriter.LogException(
+                "Inventario",
+                ex,
+                "LHM StorageGroup falhou — discos via WMI apenas.");
+        }
     }
 
     static ProcessadorDetalheInventario BuildProcessadorDetalhe(
@@ -1255,10 +1295,8 @@ internal static class InventarioHardwareReader
         IReadOnlyList<IHardware> hardware,
         IReadOnlyList<MemoriaModuloInventario> modulosSmbios)
     {
-        var fromLhm = TryGetRamTotalGbFromLhm(hardware);
-        if (fromLhm is > 0)
-            return FormatGbLabel(fromLhm.Value);
-
+        // Preferir módulos SMBIOS / OS: o LHM expõe "Virtual Memory" e "Total Memory";
+        // iterar Virtual primeiro duplicava ~2x o total físico.
         if (modulosSmbios.Count > 0)
         {
             var sum = modulosSmbios.Sum(m => m.CapacidadeGb);
@@ -1270,6 +1308,10 @@ internal static class InventarioHardwareReader
         if (fromOs is { TotalBytes: > 0 })
             return FormatGbLabel(fromOs.Value.TotalBytes / (1024d * 1024d * 1024d));
 
+        var fromLhm = TryGetRamTotalGbFromLhm(hardware);
+        if (fromLhm is > 0)
+            return FormatGbLabel(fromLhm.Value);
+
         return "—";
     }
 
@@ -1278,6 +1320,8 @@ internal static class InventarioHardwareReader
         foreach (var h in hardware)
         {
             if (h.HardwareType != HardwareType.Memory)
+                continue;
+            if (IsVirtualMemoryHardware(h))
                 continue;
 
             float? used = null;
@@ -1317,12 +1361,20 @@ internal static class InventarioHardwareReader
         return null;
     }
 
+    static bool IsVirtualMemoryHardware(IHardware hardware)
+    {
+        var name = hardware.Name ?? "";
+        return name.Contains("Virtual", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Carga de memória física (0–100). LHM primeiro; fallback Windows.</summary>
     static float? GetRamLoadPercent(IReadOnlyList<IHardware> hardware)
     {
         foreach (var h in hardware)
         {
             if (h.HardwareType != HardwareType.Memory)
+                continue;
+            if (IsVirtualMemoryHardware(h))
                 continue;
 
             foreach (var s in h.Sensors)
