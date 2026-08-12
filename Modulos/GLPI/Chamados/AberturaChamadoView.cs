@@ -1,7 +1,9 @@
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using SistecHub.Core;
 using SistecHub.Modulos.IA;
+using SistecHub.Modulos.Inventario;
 using SistecHub.UI;
 
 namespace SistecHub.Modulos.GLPI.Chamados;
@@ -11,21 +13,41 @@ namespace SistecHub.Modulos.GLPI.Chamados;
 /// </summary>
 public sealed class AberturaChamadoView : UserControl
 {
+    /// <summary>Tom de borda opaco partilhado por campos e pela área de captura.</summary>
+    static readonly Color FieldBorderColor = Color.FromArgb(203, 213, 225);
+
+    static readonly Color PastelGreenBg = Color.FromArgb(220, 252, 231);
+    static readonly Color PastelGreenHover = Color.FromArgb(187, 247, 208);
+    static readonly Color PastelGreenBorder = Color.FromArgb(134, 239, 172);
+    static readonly Color PastelGreenText = Color.FromArgb(22, 101, 52);
+
+    static readonly Color PastelRedBg = Color.FromArgb(254, 226, 226);
+    static readonly Color PastelRedHover = Color.FromArgb(254, 202, 202);
+    static readonly Color PastelRedBorder = Color.FromArgb(252, 165, 165);
+    static readonly Color PastelRedText = Color.FromArgb(153, 27, 27);
+    static readonly Color PastelRedActiveBg = Color.FromArgb(254, 202, 202);
+
     readonly TextBox _problemaTextBox;
     readonly TextBox _whatsappTextBox;
     readonly TextBox _nomeContatoTextBox;
     readonly TextBox _observacoesTextBox;
+    readonly TextBox _anyDeskTextBox;
+    readonly Panel _anyDeskShell;
+    readonly Label _anyDeskLabel;
     readonly Panel _capturaHost;
     readonly Label _hintCaptura;
     readonly PictureBox _picCaptura;
     readonly Button _btnCapturaTela;
     readonly Button _anexoEscolherButton;
     readonly Button _anexoLimparButton;
+    readonly Button _btnCapturarAnyDesk;
+    readonly Button _btnAnyDeskNaoSeAplica;
     readonly Button _btnCancelar;
     readonly Button _btnSolicitarChamado;
     readonly Button _btnIaProblema;
     readonly ToolTip _anexoToolTip = new();
     string? _anexoCaminhoCompleto;
+    bool _anyDeskNaoSeAplica;
     System.Windows.Forms.Timer? _snipClipboardTimer;
     uint _snipClipboardSeqStart;
     int _snipPollTickCount;
@@ -53,7 +75,7 @@ public sealed class AberturaChamadoView : UserControl
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 48f));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 42f));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 80f));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 42f));
 
         var headerFlow = new FlowLayoutPanel
@@ -116,18 +138,27 @@ public sealed class AberturaChamadoView : UserControl
         var contacts = BuildContactsRow(
             out _whatsappTextBox,
             out _nomeContatoTextBox,
-            marginRight: 10,
             whatsappPlaceholder: "(DDD) + Telefone",
             nomePlaceholder: "Seu nome");
+        contacts.Margin = new Padding(0, 0, 10, 12);
         grid.Controls.Add(contacts, 0, 2);
+        AttachSomenteDigitos(_whatsappTextBox);
+        AttachSomenteLetras(_nomeContatoTextBox);
 
-        var rightMidSpacer = new Panel
+        var anyDeskPanel = BuildAnyDeskColumn(
+            out _anyDeskLabel,
+            out _anyDeskTextBox,
+            out _anyDeskShell,
+            out _btnCapturarAnyDesk,
+            out _btnAnyDeskNaoSeAplica);
+        anyDeskPanel.Margin = new Padding(10, 0, 0, 12);
+        grid.Controls.Add(anyDeskPanel, 1, 2);
+        AttachSomenteDigitos(_anyDeskTextBox);
+        _anyDeskTextBox.TextChanged += (_, _) =>
         {
-            Dock = DockStyle.Fill,
-            BackColor = Color.Transparent,
-            Margin = new Padding(10, 0, 0, 0),
+            if (_anyDeskTextBox.TextLength > 0)
+                DefinirAnyDeskObrigatorio();
         };
-        grid.Controls.Add(rightMidSpacer, 1, 2);
 
         var leftBottom = BuildLabeledMultiline(
             "Observações importantes",
@@ -149,6 +180,8 @@ public sealed class AberturaChamadoView : UserControl
         _btnCapturaTela.Click += OnCapturaTelaClicked;
         _anexoEscolherButton.Click += OnAnexoEscolherClicked;
         _anexoLimparButton.Click += OnAnexoLimparClicked;
+        _btnCapturarAnyDesk.Click += OnCapturarAnyDeskClicked;
+        _btnAnyDeskNaoSeAplica.Click += OnAnyDeskNaoSeAplicaClicked;
         _btnCancelar.Click += (_, _) => CancelarClicado?.Invoke(this, EventArgs.Empty);
         _btnSolicitarChamado.Click += (_, _) => SolicitarChamadoClicado?.Invoke(this, EventArgs.Empty);
 
@@ -183,9 +216,10 @@ public sealed class AberturaChamadoView : UserControl
             ColumnCount = 1,
             RowCount = 2,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, marginRight, 12),
+            Margin = new Padding(0, 0, marginRight, 8),
         };
-        wrap.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        // Altura fixa igual à coluna da captura — alinha as caixas.
+        wrap.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
         wrap.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         if (incluirBotaoIa)
@@ -193,42 +227,46 @@ public sealed class AberturaChamadoView : UserControl
             // FlowLayoutPanel: o botão fica logo a seguir ao título (evita coluna Percent que empurra o botão para a direita).
             var labelRow = new FlowLayoutPanel
             {
-                Dock = DockStyle.Top,
+                Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                AutoSize = false,
                 BackColor = Color.Transparent,
-                Margin = new Padding(0, 0, 0, 0),
-                Padding = new Padding(0, 0, 0, 0),
+                Margin = new Padding(0),
+                Padding = new Padding(0),
             };
 
             var lbl = MakeFieldLabelBold(titulo);
-            lbl.Margin = new Padding(0, 0, 0, 0);
+            lbl.Margin = new Padding(0, 4, 6, 0);
             lbl.Anchor = AnchorStyles.Left;
             labelRow.Controls.Add(lbl);
 
             botaoIa = new Button
             {
                 Text = "IA",
-                AutoSize = true,
-                Height = 2,
-                Padding = new Padding(0, 0, 0, 0),
+                AutoSize = false,
+                Size = new Size(32, 22),
+                Padding = new Padding(0),
+                Margin = new Padding(0, 2, 0, 3),
                 FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point),
-                ForeColor = Color.White,
-                BackColor = Color.FromArgb(35, 142, 35),
+                Font = new Font("Segoe UI", 8.25F, FontStyle.Bold, GraphicsUnit.Point),
+                ForeColor = PastelGreenText,
+                BackColor = PastelGreenBg,
                 Cursor = Cursors.Hand,
-                Margin = new Padding(0, 0, 0, 0),
+                TextAlign = ContentAlignment.MiddleCenter,
             };
-            botaoIa.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+            botaoIa.FlatAppearance.BorderColor = PastelGreenBorder;
             botaoIa.FlatAppearance.BorderSize = 1;
-            botaoIa.FlatAppearance.MouseOverBackColor = Color.FromArgb(136, 231, 136);
+            botaoIa.FlatAppearance.MouseOverBackColor = PastelGreenHover;
             labelRow.Controls.Add(botaoIa);
             wrap.Controls.Add(labelRow, 0, 0);
         }
         else
-            wrap.Controls.Add(MakeFieldLabelBold(titulo), 0, 0);
+        {
+            var lbl = MakeFieldLabelBold(titulo);
+            lbl.Margin = new Padding(0, 4, 0, 0);
+            wrap.Controls.Add(lbl, 0, 0);
+        }
 
         box = new TextBox
         {
@@ -251,62 +289,116 @@ public sealed class AberturaChamadoView : UserControl
 
     /// <summary>
     /// Com <see cref="TextBox.PlaceholderText"/>, o WinForms por vezes deixa de desenhar a borda do TextBox;
-    /// o painel exterior garante o contorno visível.
+    /// o painel exterior garante o contorno visível no tom opaco do formulário.
     /// </summary>
     static Panel WrapTextBoxWithBorder(TextBox inner, int minHeight = 0)
     {
-        var shell = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BorderStyle = BorderStyle.FixedSingle,
-            BackColor = Color.White,
-            Padding = new Padding(2),
-        };
-        if (minHeight > 0)
-            shell.MinimumSize = new Size(0, minHeight);
-
+        var frame = CreateOpaqueBorderFrame(out var body, minHeight);
+        body.Padding = new Padding(2);
         inner.Dock = DockStyle.Fill;
-        shell.Controls.Add(inner);
-        shell.Click += (_, _) => inner.Focus();
-        return shell;
+        body.Controls.Add(inner);
+        body.Click += (_, _) => inner.Focus();
+        frame.Click += (_, _) => inner.Focus();
+        return frame;
     }
 
     static Panel WrapSingleLineTextBox(TextBox inner)
     {
-        var shell = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BorderStyle = BorderStyle.FixedSingle,
-            BackColor = Color.White,
-            Padding = new Padding(2, 3, 2, 3),
-        };
-        inner.Dock = DockStyle.Fill;
         inner.BorderStyle = BorderStyle.None;
         inner.BackColor = Color.White;
-        shell.Controls.Add(inner);
-        shell.Click += (_, _) => inner.Focus();
-        return shell;
+        var frame = CreateOpaqueBorderFrame(out var body, minHeight: 0);
+        body.Padding = new Padding(2, 3, 2, 3);
+        inner.Dock = DockStyle.Fill;
+        body.Controls.Add(inner);
+        body.Click += (_, _) => inner.Focus();
+        frame.Click += (_, _) => inner.Focus();
+        return frame;
+    }
+
+    /// <summary>
+    /// Borda 1px com painéis Dock (não usa Padding — TableLayout interno cobria a base).
+    /// <paramref name="body"/> é a área interior branca; o frame mantém a cor da borda nas arestas.
+    /// </summary>
+    static Panel CreateOpaqueBorderFrame(out Panel body, int minHeight)
+    {
+        var frame = new DoubleBufferedPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.None,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+        };
+        if (minHeight > 0)
+            frame.MinimumSize = new Size(0, minHeight);
+
+        body = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.None,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+        };
+
+        var top = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 1,
+            BackColor = FieldBorderColor,
+            Margin = new Padding(0),
+        };
+        var bottom = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 1,
+            BackColor = FieldBorderColor,
+            Margin = new Padding(0),
+        };
+        var left = new Panel
+        {
+            Dock = DockStyle.Left,
+            Width = 1,
+            BackColor = FieldBorderColor,
+            Margin = new Padding(0),
+        };
+        var right = new Panel
+        {
+            Dock = DockStyle.Right,
+            Width = 1,
+            BackColor = FieldBorderColor,
+            Margin = new Padding(0),
+        };
+
+        // Ordem: Fill primeiro; Top/Bottom por último para a base nunca ser coberta.
+        frame.Controls.Add(body);
+        frame.Controls.Add(left);
+        frame.Controls.Add(right);
+        frame.Controls.Add(top);
+        frame.Controls.Add(bottom);
+        return frame;
     }
 
     static TableLayoutPanel BuildContactsRow(
         out TextBox whatsapp,
         out TextBox nome,
-        int marginRight,
         string whatsappPlaceholder,
         string nomePlaceholder)
     {
         var t = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 2,
             RowCount = 2,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, marginRight, 12),
+            Margin = new Padding(0),
         };
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        t.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute, 32f));
 
         t.Controls.Add(MakeFieldLabelBold("WhatsApp *"), 0, 0);
         t.Controls.Add(MakeFieldLabelBold("Nome de contato *"), 1, 0);
@@ -324,6 +416,94 @@ public sealed class AberturaChamadoView : UserControl
         return t;
     }
 
+    static TableLayoutPanel BuildAnyDeskColumn(
+        out Label lbl,
+        out TextBox anyDesk,
+        out Panel shell,
+        out Button btnCapturar,
+        out Button btnNaoSeAplica)
+    {
+        var wrap = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            RowCount = 3,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0),
+        };
+        wrap.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        wrap.RowStyles.Add(new RowStyle(SizeType.Absolute, 32f));
+        wrap.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        lbl = MakeFieldLabelBold("AnyDesk *");
+        wrap.Controls.Add(lbl, 0, 0);
+
+        anyDesk = MakeSingleLineTextBox("Somente números");
+        anyDesk.MaxLength = 15;
+        shell = WrapSingleLineTextBox(anyDesk);
+        wrap.Controls.Add(shell, 0, 1);
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 8, 0, 0),
+            Padding = new Padding(0),
+        };
+
+        btnCapturar = MakeSecondaryActionButton(
+            "Capturar meu anydesk",
+            marginRight: 8,
+            PastelGreenBg,
+            PastelGreenHover,
+            PastelGreenBorder,
+            PastelGreenText);
+        btnNaoSeAplica = MakeSecondaryActionButton(
+            "Não se aplica",
+            marginRight: 0,
+            PastelRedBg,
+            PastelRedHover,
+            PastelRedBorder,
+            PastelRedText);
+
+        buttons.Controls.Add(btnCapturar);
+        buttons.Controls.Add(btnNaoSeAplica);
+        wrap.Controls.Add(buttons, 0, 2);
+        return wrap;
+    }
+
+    static Button MakeSecondaryActionButton(
+        string text,
+        int marginRight,
+        Color backColor,
+        Color hoverColor,
+        Color borderColor,
+        Color foreColor)
+    {
+        var btn = new Button
+        {
+            Text = text,
+            AutoSize = true,
+            Height = 28,
+            Padding = new Padding(10, 0, 10, 0),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point),
+            ForeColor = foreColor,
+            BackColor = backColor,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(0, 0, marginRight, 0),
+        };
+        btn.FlatAppearance.BorderColor = borderColor;
+        btn.FlatAppearance.BorderSize = 1;
+        btn.FlatAppearance.MouseOverBackColor = hoverColor;
+        return btn;
+    }
+
     static TableLayoutPanel BuildCapturaColumn(
         out Panel host,
         out Label hint,
@@ -338,28 +518,45 @@ public sealed class AberturaChamadoView : UserControl
             ColumnCount = 1,
             RowCount = 2,
             BackColor = Color.Transparent,
-            Margin = new Padding(10, 0, 0, 12),
+            Margin = new Padding(10, 0, 0, 8),
         };
-        wrap.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        wrap.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
         wrap.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
-        wrap.Controls.Add(MakeFieldLabelBold("Captura de tela"), 0, 0);
+        var capturaLbl = MakeFieldLabelBold("Captura de tela");
+        capturaLbl.Margin = new Padding(0, 4, 0, 0);
+        wrap.Controls.Add(capturaLbl, 0, 0);
+
+        var frame = CreateOpaqueBorderFrame(out var body, minHeight: 0);
+        body.Padding = new Padding(0);
+
+        var inner = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = Color.White,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+        };
+        inner.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        inner.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
 
         host = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle,
-            MinimumSize = new Size(100, 160),
+            BorderStyle = BorderStyle.None,
+            Margin = new Padding(0),
             Cursor = Cursors.Hand,
         };
 
         var bottomStrip = new FlowLayoutPanel
         {
-            Dock = DockStyle.Bottom,
-            Height = 40,
+            Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
+            Margin = new Padding(0),
             Padding = new Padding(8, 6, 8, 6),
             BackColor = ShellTheme.MainBg,
         };
@@ -377,7 +574,7 @@ public sealed class AberturaChamadoView : UserControl
             Cursor = Cursors.Hand,
             Margin = new Padding(0, 0, 6, 0),
         };
-        btnCapturaTela.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+        btnCapturaTela.FlatAppearance.BorderColor = FieldBorderColor;
         btnCapturaTela.FlatAppearance.BorderSize = 1;
         btnCapturaTela.FlatAppearance.MouseOverBackColor = Color.FromArgb(248, 250, 252);
 
@@ -394,7 +591,7 @@ public sealed class AberturaChamadoView : UserControl
             Cursor = Cursors.Hand,
             Margin = new Padding(0, 0, 6, 0),
         };
-        btnEscolher.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+        btnEscolher.FlatAppearance.BorderColor = FieldBorderColor;
         btnEscolher.FlatAppearance.BorderSize = 1;
         btnEscolher.FlatAppearance.MouseOverBackColor = Color.FromArgb(248, 250, 252);
 
@@ -438,11 +635,13 @@ public sealed class AberturaChamadoView : UserControl
             Cursor = Cursors.Hand,
         };
 
-        host.Controls.Add(bottomStrip);
         host.Controls.Add(pic);
         host.Controls.Add(hint);
+        inner.Controls.Add(host, 0, 0);
+        inner.Controls.Add(bottomStrip, 0, 1);
+        body.Controls.Add(inner);
 
-        wrap.Controls.Add(host, 0, 1);
+        wrap.Controls.Add(frame, 0, 1);
         return wrap;
     }
 
@@ -576,7 +775,7 @@ public sealed class AberturaChamadoView : UserControl
             Font = new Font("Segoe UI", 10F, FontStyle.Bold, GraphicsUnit.Point),
             ForeColor = ShellTheme.TextPrimary,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 6),
+            Margin = new Padding(0, 0, 0, 0),
         };
 
     static TextBox MakeSingleLineTextBox(string placeholderText) =>
@@ -588,6 +787,132 @@ public sealed class AberturaChamadoView : UserControl
             BorderStyle = BorderStyle.None,
             BackColor = Color.White,
         };
+
+    static void AttachSomenteLetras(TextBox box)
+    {
+        box.KeyPress += (_, e) =>
+        {
+            if (char.IsControl(e.KeyChar))
+                return;
+            if (!char.IsLetter(e.KeyChar) && e.KeyChar is not ' ' and not '-' and not '\'')
+                e.Handled = true;
+        };
+        box.TextChanged += (_, _) =>
+        {
+            var filtered = FiltrarSomenteLetras(box.Text);
+            if (filtered == box.Text)
+                return;
+            var sel = Math.Min(box.SelectionStart, filtered.Length);
+            box.Text = filtered;
+            box.SelectionStart = sel;
+        };
+    }
+
+    static void AttachSomenteDigitos(TextBox box)
+    {
+        box.KeyPress += (_, e) =>
+        {
+            if (char.IsControl(e.KeyChar))
+                return;
+            if (!char.IsDigit(e.KeyChar))
+                e.Handled = true;
+        };
+        box.TextChanged += (_, _) =>
+        {
+            var filtered = FiltrarSomenteDigitos(box.Text);
+            if (filtered == box.Text)
+                return;
+            var sel = Math.Min(box.SelectionStart, filtered.Length);
+            box.Text = filtered;
+            box.SelectionStart = sel;
+        };
+    }
+
+    static string FiltrarSomenteLetras(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            if (char.IsLetter(ch) || ch is ' ' or '-' or '\'')
+                sb.Append(ch);
+        }
+        return sb.ToString();
+    }
+
+    static string FiltrarSomenteDigitos(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            if (char.IsDigit(ch))
+                sb.Append(ch);
+        }
+        return sb.ToString();
+    }
+
+    void OnCapturarAnyDeskClicked(object? sender, EventArgs e)
+    {
+        var id = InventarioAcessoRemotoReader.ReadAcessoRemoto().AnyDeskId;
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            MessageBox.Show(
+                "Não foi possível obter o número do AnyDesk nesta máquina. Verifique se o AnyDesk está instalado ou digite o número manualmente.",
+                "SistecHub",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        DefinirAnyDeskObrigatorio();
+        _anyDeskTextBox.Text = id;
+        _anyDeskTextBox.SelectionStart = _anyDeskTextBox.Text.Length;
+        _anyDeskTextBox.Focus();
+    }
+
+    void OnAnyDeskNaoSeAplicaClicked(object? sender, EventArgs e)
+    {
+        using var dlg = new AnyDeskNaoSeAplicaConfirmForm();
+        if (dlg.ShowDialog(FindForm()) != DialogResult.OK)
+            return;
+
+        _anyDeskNaoSeAplica = true;
+        _anyDeskLabel.Text = "AnyDesk";
+        _anyDeskTextBox.Clear();
+        AplicarEstadoVisualAnyDesk(ativo: false);
+    }
+
+    void DefinirAnyDeskObrigatorio()
+    {
+        if (!_anyDeskNaoSeAplica)
+            return;
+
+        _anyDeskNaoSeAplica = false;
+        _anyDeskLabel.Text = "AnyDesk *";
+        AplicarEstadoVisualAnyDesk(ativo: true);
+    }
+
+    void AplicarEstadoVisualAnyDesk(bool ativo)
+    {
+        var bg = ativo ? Color.White : Color.FromArgb(226, 232, 240);
+        // Corpo interior = primeiro controlo Dock.Fill do frame com bordas Dock.
+        foreach (Control child in _anyDeskShell.Controls)
+        {
+            if (child.Dock == DockStyle.Fill)
+            {
+                child.BackColor = bg;
+                break;
+            }
+        }
+        _anyDeskTextBox.BackColor = bg;
+        _anyDeskTextBox.ReadOnly = !ativo;
+        _anyDeskTextBox.ForeColor = ativo ? ShellTheme.TextPrimary : ShellTheme.TextMuted;
+        _anyDeskTextBox.Cursor = ativo ? Cursors.IBeam : Cursors.Default;
+        _btnAnyDeskNaoSeAplica.BackColor = ativo ? PastelRedBg : PastelRedActiveBg;
+    }
 
     void OnAnexoEscolherClicked(object? sender, EventArgs e)
     {
@@ -795,4 +1120,10 @@ public sealed class AberturaChamadoView : UserControl
     public string NomeContato => _nomeContatoTextBox.Text.Trim();
 
     public string Observacoes => _observacoesTextBox.Text.Trim();
+
+    /// <summary>Número AnyDesk informado, ou vazio.</summary>
+    public string AnyDesk => _anyDeskTextBox.Text.Trim();
+
+    /// <summary>Indica se o utilizador confirmou que AnyDesk não se aplica a este chamado.</summary>
+    public bool AnyDeskNaoSeAplica => _anyDeskNaoSeAplica;
 }

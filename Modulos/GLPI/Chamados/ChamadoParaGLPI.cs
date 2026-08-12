@@ -31,26 +31,137 @@ public static class ChamadoParaGLPI
         + Environment.NewLine
         + (descricaoChamado ?? "").Trim();
 
+    const string UrlMaquinaInventario =
+        "https://angelus.sisteconsultoria.com.br/angelus/plugins/sistechub/front/maquina.php?id=";
+
     /// <summary>Texto completo da descrição (corpo do ticket no GLPI).</summary>
-    public static string MontarDescricao(AberturaChamadoView view)
+    /// <remarks>GLPI renderiza HTML: usa <c>&lt;br&gt;</c> para quebras (newline puro é ignorado).</remarks>
+    public static string MontarDescricao(AberturaChamadoView view, AppUserSettings settings)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Chamado aberto a partir do SistecHub.");
-        sb.AppendLine();
-        sb.AppendLine("— Relato do problema —");
-        sb.AppendLine(string.IsNullOrEmpty(view.TextoProblema) ? "(não indicado)" : view.TextoProblema);
-        sb.AppendLine();
-        sb.AppendLine("— Contato —");
-        sb.Append("WhatsApp: ");
-        sb.AppendLine(string.IsNullOrEmpty(view.Whatsapp) ? "(não indicado)" : view.Whatsapp);
-        sb.Append("Nome: ");
-        sb.AppendLine(string.IsNullOrEmpty(view.NomeContato) ? "(não indicado)" : view.NomeContato);
-        sb.AppendLine();
-        sb.AppendLine("— Observações —");
-        sb.AppendLine(string.IsNullOrEmpty(view.Observacoes) ? "(não indicado)" : view.Observacoes);
+        AppendHtmlLine(sb, "Chamado aberto a partir do SistecHub.");
+        AppendHtmlBreak(sb);
+        AppendHtmlLine(sb, "— Relato do problema —");
+        AppendHtmlMultiline(sb, string.IsNullOrEmpty(view.TextoProblema) ? "(não indicado)" : view.TextoProblema);
+        AppendHtmlBreak(sb);
+        AppendHtmlLine(sb, "— Contato —");
+        AppendLinhaWhatsAppHtml(sb, view.Whatsapp);
+        AppendHtmlLine(
+            sb,
+            "Nome: " + (string.IsNullOrEmpty(view.NomeContato) ? "(não indicado)" : view.NomeContato));
+        AppendLinhaAnyDeskHtml(sb, view);
+
+        AppendLinhaMaquinaHtml(sb, settings);
+        AppendHtmlBreak(sb);
+        AppendHtmlLine(sb, "— Observações —");
+        AppendHtmlMultiline(
+            sb,
+            string.IsNullOrEmpty(view.Observacoes) ? "(não indicado)" : view.Observacoes);
 
         return sb.ToString();
     }
+
+    static void AppendLinhaWhatsAppHtml(StringBuilder sb, string whatsapp)
+    {
+        sb.Append(System.Net.WebUtility.HtmlEncode("WhatsApp: "));
+        var valor = (whatsapp ?? "").Trim();
+        if (valor.Length == 0)
+        {
+            sb.Append(System.Net.WebUtility.HtmlEncode("(não indicado)"));
+            AppendHtmlBreak(sb);
+            return;
+        }
+
+        var url = MontarUrlWhatsApp(valor);
+        if (url is null)
+            sb.Append(System.Net.WebUtility.HtmlEncode(valor));
+        else
+            AppendHtmlAnchor(sb, url, valor);
+
+        AppendHtmlBreak(sb);
+    }
+
+    static void AppendLinhaAnyDeskHtml(StringBuilder sb, AberturaChamadoView view)
+    {
+        string valor;
+        if (view.AnyDeskNaoSeAplica && string.IsNullOrEmpty(view.AnyDesk))
+            valor = "não se aplica";
+        else if (string.IsNullOrEmpty(view.AnyDesk))
+            valor = "(não indicado)";
+        else
+            valor = view.AnyDesk.Trim();
+
+        AppendHtmlLine(sb, "AnyDesk: " + valor);
+    }
+
+    static void AppendLinhaMaquinaHtml(StringBuilder sb, AppUserSettings settings)
+    {
+        var hostname = (Environment.MachineName ?? "").Trim();
+        if (hostname.Length == 0)
+            hostname = "(não indicado)";
+
+        sb.Append(System.Net.WebUtility.HtmlEncode("Aberto atráves da máquina: "));
+        var machineId = (settings.GlpiMachineId ?? "").Trim();
+        if (int.TryParse(machineId, out var id) && id > 0)
+        {
+            var url = UrlMaquinaInventario + id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            AppendHtmlAnchor(sb, url, hostname);
+        }
+        else
+            sb.Append(System.Net.WebUtility.HtmlEncode(hostname));
+
+        AppendHtmlBreak(sb);
+    }
+
+    static void AppendHtmlAnchor(StringBuilder sb, string url, string displayText)
+    {
+        sb.Append("<a href=\"");
+        sb.Append(System.Net.WebUtility.HtmlEncode(url));
+        sb.Append("\" target=\"_blank\" rel=\"noopener noreferrer\">");
+        sb.Append(System.Net.WebUtility.HtmlEncode(displayText));
+        sb.Append("</a>");
+    }
+
+    /// <summary>Link <c>https://wa.me/</c> com DDI 55 quando o número parecer brasileiro sem país.</summary>
+    static string? MontarUrlWhatsApp(string valor)
+    {
+        var digits = SomenteDigitos(valor);
+        if (digits.Length == 0)
+            return null;
+
+        if (digits.Length is >= 10 and <= 11 && !digits.StartsWith("55", StringComparison.Ordinal))
+            digits = "55" + digits;
+
+        return "https://wa.me/" + digits;
+    }
+
+    static string SomenteDigitos(string valor)
+    {
+        var sb = new StringBuilder(valor.Length);
+        foreach (var ch in valor)
+        {
+            if (char.IsDigit(ch))
+                sb.Append(ch);
+        }
+        return sb.ToString();
+    }
+
+    static void AppendHtmlLine(StringBuilder sb, string text)
+    {
+        sb.Append(System.Net.WebUtility.HtmlEncode(text));
+        AppendHtmlBreak(sb);
+    }
+
+    static void AppendHtmlMultiline(StringBuilder sb, string text)
+    {
+        var encoded = System.Net.WebUtility.HtmlEncode(text);
+        sb.Append(encoded.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace("\r", "\n", StringComparison.Ordinal)
+            .Replace("\n", "<br>", StringComparison.Ordinal));
+        AppendHtmlBreak(sb);
+    }
+
+    static void AppendHtmlBreak(StringBuilder sb) => sb.Append("<br>");
 
     /// <summary>Gera o título curto do ticket (campo <c>name</c> no GLPI).</summary>
     public static string MontarTitulo(string textoProblema)
@@ -249,6 +360,9 @@ public static class ChamadoParaGLPI
         if (string.IsNullOrWhiteSpace(view.NomeContato))
             throw new InvalidOperationException("Indique o nome de contacto.");
 
+        if (!view.AnyDeskNaoSeAplica && string.IsNullOrWhiteSpace(view.AnyDesk))
+            throw new InvalidOperationException("Indique o número do AnyDesk ou marque \"Não se aplica\".");
+
         if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
             throw new InvalidOperationException("Configure o User token do GLPI em Configurações.");
 
@@ -261,7 +375,7 @@ public static class ChamadoParaGLPI
             GroqDisponivel(settings) ? "Criando título com IA…" : "A preparar título…");
         var tituloBase = await GerarTituloChamadoAsync(problema, settings, cancellationToken).ConfigureAwait(false);
         var titulo = AplicarPrefixoTituloSistecHub(tituloBase);
-        var descricao = MontarDescricao(view);
+        var descricao = MontarDescricao(view, settings);
 
         Reportar(progress, "A carregar categorias do GLPI…");
         var categoriasGlpi = await GlpiApiClient.GetItilCategoriesAsync(settings, cancellationToken).ConfigureAwait(false);
