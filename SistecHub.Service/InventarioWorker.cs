@@ -168,18 +168,7 @@ public sealed class InventarioWorker
             var reportJson = JsonSerializer.Serialize(report, ReportJsonOptions);
 
             InventarioServiceCoordinator.WriteReportJson(reportJson);
-            InventarioServiceCoordinator.WriteUiSnapshot(new InventarioUiSnapshot
-            {
-                Cpu = snapshot.Cpu,
-                Ram = snapshot.Ram,
-                Gpu = snapshot.Gpu,
-                Motherboard = snapshot.Motherboard,
-                CpuTemperatureLine = snapshot.CpuTemperatureLine,
-                RamUsageLine = snapshot.RamUsageLine,
-                GpuTemperatureLine = snapshot.GpuTemperatureLine,
-                MotherboardSerialLine = snapshot.MotherboardSerialLine,
-                CollectedAt = DateTimeOffset.UtcNow,
-            });
+            InventarioServiceCoordinator.WriteUiSnapshot(ToUiSnapshot(snapshot));
 
             var prev = InventarioServiceCoordinator.TryReadStatus();
             InventarioServiceCoordinator.WriteStatus(new InventarioServiceStatus
@@ -233,18 +222,7 @@ public sealed class InventarioWorker
             _ = await InventarioGlpiInventoryUpload.PostInventoryPayloadAsync(snapshot, settings, cancellationToken)
                 .ConfigureAwait(false);
 
-            InventarioServiceCoordinator.WriteUiSnapshot(new InventarioUiSnapshot
-            {
-                Cpu = snapshot.Cpu,
-                Ram = snapshot.Ram,
-                Gpu = snapshot.Gpu,
-                Motherboard = snapshot.Motherboard,
-                CpuTemperatureLine = snapshot.CpuTemperatureLine,
-                RamUsageLine = snapshot.RamUsageLine,
-                GpuTemperatureLine = snapshot.GpuTemperatureLine,
-                MotherboardSerialLine = snapshot.MotherboardSerialLine,
-                CollectedAt = DateTimeOffset.UtcNow,
-            });
+            InventarioServiceCoordinator.WriteUiSnapshot(ToUiSnapshot(snapshot));
 
             var entidade = int.TryParse(settings.EntityId?.Trim(), out var entityId) && entityId > 0
                 ? entityId
@@ -284,4 +262,30 @@ public sealed class InventarioWorker
             UpdatedAt = DateTimeOffset.UtcNow,
         });
     }
+
+    static InventarioUiSnapshot ToUiSnapshot(in InventarioHardwareSnapshot snapshot) =>
+        new()
+        {
+            Cpu = snapshot.Cpu,
+            Ram = snapshot.Ram,
+            Gpu = snapshot.Gpu,
+            Motherboard = snapshot.Motherboard,
+            CpuTemperatureLine = snapshot.CpuTemperatureLine,
+            RamUsageLine = snapshot.RamUsageLine,
+            GpuTemperatureLine = snapshot.GpuTemperatureLine,
+            MotherboardSerialLine = snapshot.MotherboardSerialLine,
+            Discos = snapshot.DiscosRigidos
+                .Select(d => new InventarioUiDiscoSnapshot
+                {
+                    Nome = d.Nome,
+                    Tipo = d.Tipo,
+                    NumeroSerie = d.NumeroSerie,
+                    Saude = d.Saude,
+                    VidaPercent = d.VidaPercent,
+                    ArmazenamentoTotalGb = d.ArmazenamentoTotalGb,
+                    ArmazenamentoUsadoGb = d.ArmazenamentoUsadoGb,
+                })
+                .ToArray(),
+            CollectedAt = DateTimeOffset.UtcNow,
+        };
 }

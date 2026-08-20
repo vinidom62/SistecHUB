@@ -88,6 +88,9 @@ internal sealed class DiscoRigidoRelatorioJson
     [JsonPropertyName("numero_serie")]
     public string? NumeroSerie { get; init; }
 
+    [JsonPropertyName("saude")]
+    public string Saude { get; init; } = "desconhecida";
+
     [JsonPropertyName("vida_percent")]
     public float? VidaPercent { get; init; }
 
@@ -230,6 +233,7 @@ internal sealed class InventarioRelatorioJson
                     Nome = d.Nome,
                     Tipo = d.Tipo,
                     NumeroSerie = d.NumeroSerie,
+                    Saude = d.Saude,
                     VidaPercent = d.VidaPercent,
                     ArmazenamentoTotalGb = d.ArmazenamentoTotalGb,
                     ArmazenamentoUsadoGb = d.ArmazenamentoUsadoGb,

@@ -1,7 +1,7 @@
-using System.Globalization;
 using System.Management;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using DiskInfoToolkit;
 using LibreHardwareMonitor.Hardware;
 using LibreHardwareMonitor.Hardware.Storage;
 
@@ -39,6 +39,7 @@ internal sealed record DiscoRigidoInventario(
     string Nome,
     string Tipo,
     string? NumeroSerie,
+    string Saude,
     float? VidaPercent,
     float? ArmazenamentoTotalGb,
     float? ArmazenamentoUsadoGb);
@@ -376,7 +377,7 @@ internal static class InventarioHardwareReader
 
     static IReadOnlyList<DiscoRigidoInventario> BuildDiscosRigidos(IReadOnlyList<IHardware> flat)
     {
-        var lhmDisks = new List<(IHardware Hardware, string Nome, float? LifePct, float? TotalGb, float? UsedGb, string? Serial, string? Bus)>();
+        var lhmDisks = new List<(IHardware Hardware, string Nome, float? LifePct, string Saude, float? TotalGb, float? UsedGb, string? Serial, string? Bus)>();
         foreach (var h in flat)
         {
             if (h.HardwareType != HardwareType.Storage)
@@ -432,9 +433,9 @@ internal static class InventarioHardwareReader
             if (serial is not null && IsPlaceholderSerial(serial))
                 serial = null;
 
-            var lifePct = TryExtractDiskLifePercent(h, report);
+            var (lifePct, saude) = ReadToolkitDiskHealth(h);
 
-            lhmDisks.Add((h, nome, lifePct, totalGb, usedGb, serial, busLine));
+            lhmDisks.Add((h, nome, lifePct, saude, totalGb, usedGb, serial, busLine));
         }
 
         var wmiDisks = CollectWmiPhysicalDisks();
@@ -466,6 +467,7 @@ internal static class InventarioHardwareReader
             }
 
             float? life = null;
+            var saude = "desconhecida";
             float? totalGb = wmi.SizeBytes > 0
                 ? (float)Math.Round(wmi.SizeBytes / (1024d * 1024d * 1024d), 2)
                 : null;
@@ -478,6 +480,7 @@ internal static class InventarioHardwareReader
                 matchedLhm.Add(bestIdx);
                 var lhm = lhmDisks[bestIdx];
                 life = lhm.LifePct;
+                saude = lhm.Saude;
                 if (totalGb is null)
                     totalGb = lhm.TotalGb is not null ? (float)Math.Round(lhm.TotalGb.Value, 2) : null;
                 usedGb = lhm.UsedGb;
@@ -497,6 +500,7 @@ internal static class InventarioHardwareReader
                 wmi.Model ?? "Disco",
                 NormalizeTipoDisco(tipo),
                 serial,
+                saude,
                 life,
                 totalGb,
                 usedGb));
@@ -511,6 +515,7 @@ internal static class InventarioHardwareReader
                 lhm.Nome,
                 NormalizeTipoDisco(InferTipoDisco(lhm.Hardware, lhm.Bus, lhm.LifePct is not null)),
                 lhm.Serial,
+                lhm.Saude,
                 lhm.LifePct,
                 lhm.TotalGb is not null ? (float)Math.Round(lhm.TotalGb.Value, 2) : null,
                 lhm.UsedGb));
@@ -531,98 +536,122 @@ internal static class InventarioHardwareReader
     }
 
     /// <summary>
-    /// Vida útil restante (0–100). LHM muitas vezes não cria sensor Level para SSDs genéricos
-    /// (ex.: Endurance Remaining só aparece na tabela SMART) — por isso lemos sensores, NVMe e SMART.
+    /// Saúde e vida restantes da DiskInfoToolkit (<c>Smart.DiskStatus</c> / <c>Smart.Life</c>).
+    /// <c>Life</c> só em SSD/NVMe. HD usa os mesmos atributos da toolkit (05 / C5 / C6):
+    /// na 1.1.2 o <c>DiskStatus</c> do HD fica sempre Unknown por um <c>&amp;&amp;</c> onde deveria ser <c>||</c>.
     /// </summary>
-    static float? TryExtractDiskLifePercent(IHardware hardware, string? report)
+    static (float? LifePct, string Saude) ReadToolkitDiskHealth(IHardware hardware)
     {
-        float? fromSensors = null;
-        float? fromUsed = null;
-
-        foreach (var s in AllSensors(hardware))
-        {
-            if (s.Value is null)
-                continue;
-
-            var name = s.Name ?? "";
-            if (IsRemainingLifeSensorName(name))
-            {
-                fromSensors = ClampLifePercent(s.Value.Value);
-                break;
-            }
-
-            if (IsConsumedLifeSensorName(name))
-                fromUsed ??= ClampLifePercent(100f - s.Value.Value);
-        }
-
-        if (fromSensors is not null)
-            return fromSensors;
-        if (fromUsed is not null)
-            return fromUsed;
-
-        if (hardware is StorageDevice device)
-        {
-            var fromDevice = TryReadLifeFromStorageDevice(device);
-            if (fromDevice is not null)
-                return fromDevice;
-        }
-
-        return TryParseLifeFromStorageReport(report);
-    }
-
-    /// <summary>LHM 0.9.5+ unifica ATA/NVMe em <see cref="StorageDevice"/> (DiskInfoToolkit).</summary>
-    static float? TryReadLifeFromStorageDevice(StorageDevice device)
-    {
+        const string unknown = "desconhecida";
         try
         {
-            var life = device.Storage.Smart?.Life;
-            if (life.HasValue)
-                return ClampLifePercent(life.Value);
+            if (hardware is not StorageDevice device)
+                return (null, unknown);
 
-            foreach (var attr in device.Attributes)
+            var storage = device.Storage;
+            var smart = storage.Smart;
+            var saude = MapDiskStatus(smart?.DiskStatus.ToString());
+
+            var isSolidState = false;
+            try
             {
-                if (attr is null)
-                    continue;
-
-                if (IsRemainingLifeSensorName(attr.Name) || IsKnownWearAttributeId(attr.Id))
-                {
-                    // SmartAttribute.Value expõe RawValueULong; só aceitar se parecer % 0–100.
-                    if (attr.Value is >= 0 and <= 100)
-                        return ClampLifePercent(attr.Value);
-                }
+                isSolidState = storage.IsNVMe || storage.IsSSD;
             }
+            catch
+            {
+                // tipo desconhecido — não inventar %
+            }
+
+            if (saude == unknown && !isSolidState)
+            {
+                try
+                {
+                    storage.Update();
+                    smart = storage.Smart;
+                    saude = MapDiskStatus(smart?.DiskStatus.ToString());
+                }
+                catch
+                {
+                    // atributos da primeira passagem do LHM ainda servem
+                }
+
+                if (saude == unknown)
+                    saude = MapHddStatusFromToolkitAttributes(smart);
+            }
+
+            float? life = null;
+            if (isSolidState && smart?.Life is { } lifeVal)
+                life = ClampLifePercent(lifeVal);
+
+            return (life, saude);
         }
         catch
         {
-            return null;
+            return (null, unknown);
+        }
+    }
+
+    /// <summary>
+    /// Regra CrystalDiskInfo/DiskInfoToolkit para HD: IDs 0x05, 0xC5 e 0xC6
+    /// (a 1.1.2 compara os três com AND, por isso nunca marca o HD como Good).
+    /// </summary>
+    static string MapHddStatusFromToolkitAttributes(DiskInfoToolkit.SmartInfo? smart)
+    {
+        const string unknown = "desconhecida";
+        if (smart?.SmartAttributes is not { Count: > 0 } attrs)
+            return unknown;
+
+        var error = 0;
+        var caution = 0;
+        var sawHealthAttr = false;
+
+        foreach (var sa in attrs)
+        {
+            var id = sa.Info.ID;
+            var a = sa.Attribute;
+
+            if (IsHddFailureAttributeId(id) && a.Threshold != 0 && a.CurrentValue < a.Threshold)
+                error++;
+
+            if (id is not (0x05 or 0xC5 or 0xC6))
+                continue;
+
+            sawHealthAttr = true;
+            var raw = a.RawValue;
+            if (raw is { Length: >= 4 } && raw[0] == 0xFF && raw[1] == 0xFF && raw[2] == 0xFF && raw[3] == 0xFF)
+                continue;
+            if (a.Threshold > 0 && a.RawValueUInt >= a.Threshold)
+                caution++;
         }
 
-        return null;
+        if (error > 0)
+            return "falha";
+        if (!sawHealthAttr)
+            return unknown;
+        if (caution > 0)
+            return "atencao";
+        return "saudavel";
     }
 
-    static bool IsRemainingLifeSensorName(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return false;
+    static bool IsHddFailureAttributeId(byte id) =>
+        (id is >= 0x01 and <= 0x0D)
+        || id == 0x16
+        || (id is >= 0xBB and <= 0xBD)
+        || (id is >= 0xBF and <= 0xC1)
+        || (id is >= 0xC3 and <= 0xD1)
+        || (id is >= 0xD3 and <= 0xD4)
+        || (id is >= 0xDC and <= 0xE4)
+        || (id is >= 0xE6 and <= 0xE7)
+        || id is 0xF0 or 0xFA or 0xFE;
 
-        if (name.Equals("Life", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("Remaining", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return name.Contains("Remaining Life", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Endurance Remaining", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Media Wear Out", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Media Wearout", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Wear Leveling Count", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("SSD Life", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Wear Out Indicator", StringComparison.OrdinalIgnoreCase);
-    }
-
-    static bool IsConsumedLifeSensorName(string? name) =>
-        !string.IsNullOrWhiteSpace(name)
-        && (name.Contains("Percentage Used", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Percent Lifetime Used", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Percentage Lifetime Used", StringComparison.OrdinalIgnoreCase));
+    static string MapDiskStatus(string? status) =>
+        status?.Trim().ToUpperInvariant() switch
+        {
+            "GOOD" => "saudavel",
+            "CAUTION" or "WARNING" => "atencao",
+            "BAD" or "FAIL" => "falha",
+            _ => "desconhecida",
+        };
 
     static float? ClampLifePercent(float value)
     {
@@ -631,72 +660,6 @@ internal static class InventarioHardwareReader
         if (value < 0 || value > 100)
             return null;
         return (float)Math.Round(value, 1);
-    }
-
-    static bool TryParseInvariantFloat(string text, out float value) =>
-        float.TryParse(
-            text.Replace(',', '.'),
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out value);
-
-    static bool IsKnownWearAttributeId(byte id) =>
-        id is 0xA9 // SSD life left (vários vendors)
-            or 0xAD // Wear Leveling Count
-            or 0xB1 // Wear Leveling Count
-            or 0xE8; // Endurance Remaining / Available Reserved Space
-
-    static float? TryParseLifeFromStorageReport(string? report)
-    {
-        if (string.IsNullOrWhiteSpace(report))
-            return null;
-
-        // NVMe: "Percentage Used: 12%"
-        var usedMatch = Regex.Match(
-            report,
-            @"Percentage\s+Used\s*:\s*(\d+(?:[.,]\d+)?)\s*%?",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        if (usedMatch.Success
-            && TryParseInvariantFloat(usedMatch.Groups[1].Value, out var used))
-            return ClampLifePercent(100f - used);
-
-        // Linhas tipo "Remaining Life: 88" / "Endurance Remaining: 88"
-        foreach (Match m in Regex.Matches(
-                     report,
-                     @"(?:Remaining\s+Life|Endurance\s+Remaining)\s*:\s*(\d+(?:[.,]\d+)?)\s*%?",
-                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-        {
-            if (TryParseInvariantFloat(m.Groups[1].Value, out var life))
-                return ClampLifePercent(life);
-        }
-
-        // Relatório LHM 0.9.6: "ID, Description, Value, Threshold" ou linhas com Remaining Life.
-        foreach (var rawLine in report.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = rawLine.Trim();
-            if (line.Length < 8 || !IsRemainingLifeSensorName(line))
-                continue;
-
-            var numbers = Regex.Matches(line, @"\d+(?:[.,]\d+)?");
-            if (numbers.Count < 2)
-                continue;
-
-            // Preferir o campo Value (penúltimo numérico na linha antiga; 3.º na nova).
-            if (numbers.Count >= 3
-                && TryParseInvariantFloat(numbers[2].Value, out var value)
-                && value is >= 0 and <= 100)
-                return ClampLifePercent(value);
-
-            if (TryParseInvariantFloat(numbers[^1].Value, out var last)
-                && last is >= 0 and <= 100)
-                return ClampLifePercent(last);
-
-            if (TryParseInvariantFloat(numbers[^2].Value, out var prev)
-                && prev is >= 0 and <= 100)
-                return ClampLifePercent(prev);
-        }
-
-        return null;
     }
 
     sealed class WmiDiskRow

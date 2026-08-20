@@ -1,6 +1,6 @@
 namespace SistecHub.Core;
 
-/// <summary>Relança o SistecHub após actualização aplicada pelo serviço.</summary>
+/// <summary>Relança o SistecHub na sessão do utilizador após actualização aplicada pelo serviço.</summary>
 public static class PostUpdateAppReopen
 {
     static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(5);
@@ -32,16 +32,56 @@ public static class PostUpdateAppReopen
         if (!UpdateServiceCoordinator.HasReopenAppRequest())
             return Task.CompletedTask;
 
+        var version = TryReadReopenRequestVersion();
+
         if (SistecHubAppProcess.IsRunning())
         {
             UpdateActivityLog.Info("Update", "SistecHub detectado após actualização — pedido de reabertura concluído.");
-            UpdateServiceCoordinator.ClearReopenAppRequest();
+            MarkReopenCompleted(version);
             return Task.CompletedTask;
         }
 
         if (InteractiveUserAppLauncher.TryLaunchMainAppInActiveSession("serviço pós-actualização"))
-            UpdateServiceCoordinator.ClearReopenAppRequest();
+            MarkReopenCompleted(version);
 
         return Task.CompletedTask;
+    }
+
+    static void MarkReopenCompleted(string? version)
+    {
+        UpdateServiceCoordinator.ClearReopenAppRequest();
+        UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
+        {
+            Phase = UpdateServicePhase.Completed,
+            Message = string.IsNullOrWhiteSpace(version)
+                ? "Atualização concluída — SistecHub reaberto."
+                : $"Atualização concluída — versão {version}.",
+            CurrentVersion = version,
+            AvailableVersion = version,
+        });
+    }
+
+    static string? TryReadReopenRequestVersion()
+    {
+        try
+        {
+            var path = UpdateServiceCoordinator.ReopenAppRequestFilePath;
+            if (!File.Exists(path))
+                return null;
+
+            var text = File.ReadAllText(path).Trim();
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            // Fallback do pedido: timestamp ISO em vez da versão.
+            if (DateTimeOffset.TryParse(text, out _))
+                return null;
+
+            return text;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

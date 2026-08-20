@@ -167,5 +167,25 @@ public sealed class InventarioUiSnapshot
 
     public string MotherboardSerialLine { get; set; } = "N.º de série: —";
 
+    public InventarioUiDiscoSnapshot[] Discos { get; set; } = [];
+
     public DateTimeOffset CollectedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>Disco no snapshot da HUD (serviço → app).</summary>
+public sealed class InventarioUiDiscoSnapshot
+{
+    public string Nome { get; set; } = "";
+
+    public string Tipo { get; set; } = "";
+
+    public string? NumeroSerie { get; set; }
+
+    public string Saude { get; set; } = "desconhecida";
+
+    public float? VidaPercent { get; set; }
+
+    public float? ArmazenamentoTotalGb { get; set; }
+
+    public float? ArmazenamentoUsadoGb { get; set; }
 }

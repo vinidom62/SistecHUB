@@ -35,29 +35,19 @@ static class Program
             })
             .OnAfterUpdateFastCallback(v =>
             {
-                UpdateActivityLog.Info("Update", $"Hook OnAfterUpdate — versão nova {v}.");
+                // Não relançar a UI aqui: o hook corre fora da sessão do utilizador.
+                // O serviço relança via InteractiveUserAppLauncher (reopen-app.request).
+                UpdateActivityLog.Info(
+                    "Update",
+                    $"Hook OnAfterUpdate — versão nova {v}. A reiniciar serviço; reabertura da UI fica a cargo do serviço.");
                 WindowsServiceRegistration.TryEnsureServiceRunningAfterUpdate();
-
-                if (SistecHubAppLauncher.TryStartMainApp("hook OnAfterUpdate"))
+                UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
                 {
-                    UpdateServiceCoordinator.ClearReopenAppRequest();
-                    UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
-                    {
-                        Phase = UpdateServicePhase.Completed,
-                        Message = $"Atualização concluída — versão {v}.",
-                        AvailableVersion = v.ToString(),
-                        CurrentVersion = v.ToString(),
-                    });
-                }
-                else
-                {
-                    UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
-                    {
-                        Phase = UpdateServicePhase.Error,
-                        Message = "Atualização instalada, mas o SistecHub não pôde ser aberto automaticamente.",
-                        AvailableVersion = v.ToString(),
-                    });
-                }
+                    Phase = UpdateServicePhase.Completed,
+                    Message = $"Atualização concluída — versão {v}. A reabrir o SistecHub...",
+                    AvailableVersion = v.ToString(),
+                    CurrentVersion = v.ToString(),
+                });
             })
             .OnRestarted(v => UpdateActivityLog.Info("Update", $"Hook OnRestarted — versão {v}."))
             .OnBeforeUninstallFastCallback(_ => WindowsServiceRegistration.Uninstall())
