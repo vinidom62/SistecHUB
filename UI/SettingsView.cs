@@ -18,6 +18,7 @@ internal sealed class SettingsView : UserControl
     readonly Button _checkUpdateButton;
     readonly Button _checkBetaUpdateButton;
     readonly Button _enviarInventarioBtn;
+    readonly CheckBox _iniciarMinimizadoCheckBox;
     readonly Button _saveButton;
     readonly Label _feedbackLabel;
 
@@ -265,6 +266,18 @@ internal sealed class SettingsView : UserControl
         _glpiMachineIdTextBox.BackColor = Color.FromArgb(241, 245, 249);
         stack.Controls.Add(_glpiMachineIdTextBox);
 
+        _iniciarMinimizadoCheckBox = new CheckBox
+        {
+            Text = "Inicializar minimizado",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextPrimary,
+            BackColor = Color.Transparent,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(0, 16, 0, 8),
+        };
+        stack.Controls.Add(_iniciarMinimizadoCheckBox);
+
         _saveButton = new Button
         {
             Text = "Salvar configurações",
@@ -414,6 +427,7 @@ internal sealed class SettingsView : UserControl
         var settings = AppSettingsStore.Load();
         _glpiUserTokenTextBox.Text = settings.GlpiUserToken ?? "";
         _glpiMachineIdTextBox.Text = settings.GlpiMachineId ?? "";
+        _iniciarMinimizadoCheckBox.Checked = settings.IniciarMinimizado;
         _persistedEntityId = ParseEntityId(settings.EntityId);
         ApplySavedEntityPlaceholder();
         await LoadEntityComboAsync(settings).ConfigureAwait(true);
@@ -630,6 +644,7 @@ internal sealed class SettingsView : UserControl
             merged.EntityId = entityId.ToString();
             merged.GlpiUserToken = _glpiUserTokenTextBox.Text.Trim();
             merged.GlpiMachineId = _glpiMachineIdTextBox.Text.Trim();
+            merged.IniciarMinimizado = _iniciarMinimizadoCheckBox.Checked;
             _persistedEntityId = entityId;
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));

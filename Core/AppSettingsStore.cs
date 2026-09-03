@@ -16,6 +16,9 @@ public sealed class AppUserSettings
 
     /// <summary>Id do computador no plugin SistecHub Machines (GLPI).</summary>
     public string GlpiMachineId { get; set; } = "";
+
+    /// <summary>Quando ativo, o SistecHub inicia minimizado ao arrancar com o Windows.</summary>
+    public bool IniciarMinimizado { get; set; } = false;
 }
 
 /// <summary>Conteúdo público persistido em <c>settings.json</c> (sem credenciais).</summary>
@@ -24,6 +27,8 @@ sealed class PersistedAppSettings
     public string EntityId { get; set; } = "";
 
     public string GlpiMachineId { get; set; } = "";
+
+    public bool IniciarMinimizado { get; set; } = false;
 }
 
 /// <summary>Carrega e grava <see cref="AppUserSettings"/>.</summary>
@@ -127,16 +132,17 @@ public static class AppSettingsStore
             normalized.GlpiUserToken,
             normalized.GroqApiKey);
 
-        WritePublicSettingsFile(normalized.EntityId, normalized.GlpiMachineId);
+        WritePublicSettingsFile(normalized.EntityId, normalized.GlpiMachineId, normalized.IniciarMinimizado);
     }
 
-    static void WritePublicSettingsFile(string entityId, string glpiMachineId)
+    static void WritePublicSettingsFile(string entityId, string glpiMachineId, bool iniciarMinimizado)
     {
         var json = JsonSerializer.Serialize(
             new PersistedAppSettings
             {
                 EntityId = entityId,
                 GlpiMachineId = glpiMachineId ?? "",
+                IniciarMinimizado = iniciarMinimizado,
             },
             JsonOptions);
         File.WriteAllText(SettingsFilePath, json);
@@ -157,6 +163,7 @@ public static class AppSettingsStore
             {
                 settings.EntityId = parsed.EntityId ?? "";
                 settings.GlpiMachineId = parsed.GlpiMachineId ?? "";
+                settings.IniciarMinimizado = parsed.IniciarMinimizado;
             }
 
             var legacySecrets = TryReadLegacySecrets(json);
@@ -183,7 +190,7 @@ public static class AppSettingsStore
         if (usedLegacySecrets && directory == SettingsDirectory)
             Save(settings);
         else if (needsSettingsSanitize)
-            WritePublicSettingsFile(settings.EntityId, settings.GlpiMachineId);
+            WritePublicSettingsFile(settings.EntityId, settings.GlpiMachineId, settings.IniciarMinimizado);
 
         return settings;
     }

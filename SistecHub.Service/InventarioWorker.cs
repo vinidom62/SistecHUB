@@ -63,6 +63,26 @@ public sealed class InventarioWorker
             var collectDue = DateTime.UtcNow - lastCollect >= CollectInterval;
             var uploadDue = DateTime.UtcNow - lastUpload >= UploadInterval;
 
+            if (refreshRequested || uploadRequested)
+            {
+                var s = AppSettingsStore.Load();
+                if (AppSettingsStore.IsInitialSetupComplete(s) && !InventarioMachineRegistration.HasMachineId(s))
+                {
+                    try
+                    {
+                        await EnsureMachineRegisteredAsync(stoppingToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Tentativa de registo de máquina no loop falhou.");
+                    }
+                }
+            }
+
             if (refreshRequested || collectDue || uploadRequested || uploadDue)
             {
                 try
@@ -195,6 +215,12 @@ public sealed class InventarioWorker
 
         if (InventarioPluginPayloadJson.ParsePluginMachineId(settings.GlpiMachineId) <= 0)
         {
+            await EnsureMachineRegisteredAsync(cancellationToken).ConfigureAwait(false);
+            settings = AppSettingsStore.Load();
+        }
+
+        if (InventarioPluginPayloadJson.ParsePluginMachineId(settings.GlpiMachineId) <= 0)
+        {
             if (force)
                 _logger.LogWarning("Upload de inventário pedido sem ID de máquina.");
             return false;
@@ -274,6 +300,12 @@ public sealed class InventarioWorker
             RamUsageLine = snapshot.RamUsageLine,
             GpuTemperatureLine = snapshot.GpuTemperatureLine,
             MotherboardSerialLine = snapshot.MotherboardSerialLine,
+            OsNome = snapshot.SistemaOperacional.NomeProduto,
+            OsVersao = snapshot.SistemaOperacional.VersaoAtual,
+            OsArquitetura = snapshot.SistemaOperacional.Arquitetura,
+            OsStatusAtivacao = snapshot.SistemaOperacional.StatusAtivacao,
+            OsChaveAtivacao = snapshot.SistemaOperacional.ChaveAtivacao,
+            OsCanalLicenca = snapshot.SistemaOperacional.CanalLicenca,
             Discos = snapshot.DiscosRigidos
                 .Select(d => new InventarioUiDiscoSnapshot
                 {

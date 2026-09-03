@@ -326,6 +326,10 @@ internal sealed class InitialSetupForm : Form
 
         AppSettingsStore.Save(_draftSettings);
         _setupCompleted = true;
+
+        InventarioServiceCoordinator.RequestRefresh();
+        InventarioServiceCoordinator.RequestUpload();
+
         DialogResult = DialogResult.OK;
         Close();
     }

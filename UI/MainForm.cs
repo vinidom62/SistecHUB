@@ -20,13 +20,19 @@ internal sealed class MainForm : Form
 
     bool _exitRequested;
     bool _machineRegistrationStarted;
+    bool _startupServicesStarted;
+    readonly bool _startMinimized;
+    bool _allowShow;
     string _activePageId = "home";
     UserControl? _transitionOldPage;
     UserControl? _transitionNewPage;
     long _transitionStartTick;
 
-    public MainForm()
+    public MainForm(bool startMinimized = false)
     {
+        _startMinimized = startMinimized;
+        _allowShow = !startMinimized;
+
         _modulesById = ModuleLoader.DiscoverModules()
             .ToDictionary(m => m.Id, StringComparer.OrdinalIgnoreCase);
         AppDebugLog.Info("App", $"Módulos carregados: {string.Join(", ", _modulesById.Keys)}");
@@ -57,8 +63,6 @@ internal sealed class MainForm : Form
         _trayIcon.DoubleClick += (_, _) => ShowFromTray();
 
         AppUpdateService.UpdateRestartRequested += OnUpdateRestartRequested;
-
-        Shown += (_, _) => AppUpdateService.BeginAutomaticUpdateMonitoring(this);
 
         FormClosing += OnFormClosing;
 
@@ -217,12 +221,22 @@ internal sealed class MainForm : Form
         {
             SyncMenuButtonWidths();
             SyncFooterItemWidths();
-            RefreshFooterEntityName();
-            _ = PrefetchFooterEntityNameAsync();
-            InventarioSnapshotCoordinator.Start();
-            _ = EnsureMachineRegisteredOnStartupAsync();
+            EnsureBackgroundServicesStarted();
         };
         Load += OnMainFormLoad;
+    }
+
+    void EnsureBackgroundServicesStarted()
+    {
+        if (_startupServicesStarted)
+            return;
+        _startupServicesStarted = true;
+
+        AppUpdateService.BeginAutomaticUpdateMonitoring(this);
+        RefreshFooterEntityName();
+        _ = PrefetchFooterEntityNameAsync();
+        InventarioSnapshotCoordinator.Start();
+        _ = EnsureMachineRegisteredOnStartupAsync();
     }
 
     async Task EnsureMachineRegisteredOnStartupAsync()
@@ -230,6 +244,10 @@ internal sealed class MainForm : Form
         if (_machineRegistrationStarted || IsDisposed)
             return;
         _machineRegistrationStarted = true;
+
+        var settings = AppSettingsStore.Load();
+        if (InventarioMachineRegistration.HasMachineId(settings))
+            return;
 
         // Registo + coleta + upload correm no SistecHub.Service (elevado).
         InventarioServiceCoordinator.RequestRefresh();
@@ -251,6 +269,36 @@ internal sealed class MainForm : Form
                     return;
                 }
 
+                // Se após 12 segundos o serviço ainda não registou, tenta o registo direto como fallback
+                if (i == 6)
+                {
+                    settings = AppSettingsStore.Load();
+                    if (!InventarioMachineRegistration.HasMachineId(settings)
+                        && AppSettingsStore.IsInitialSetupComplete(settings))
+                    {
+                        try
+                        {
+                            var fallbackId = await InventarioMachineRegistration.EnsureRegisteredAsync()
+                                .ConfigureAwait(true);
+                            if (fallbackId is int fid)
+                            {
+                                InventarioServiceCoordinator.RequestUpload();
+                                MessageBox.Show(
+                                    this,
+                                    $"Máquina inventáriada, ID: {fid}",
+                                    "Inventário",
+                                    MessageBoxButtons.OK,
+                                    MessageBoxIcon.Information);
+                                return;
+                            }
+                        }
+                        catch (Exception fallbackEx)
+                        {
+                            AppDebugLog.LogException("Inventario", fallbackEx, "Registo de máquina no startup (fallback)");
+                        }
+                    }
+                }
+
                 await Task.Delay(2000).ConfigureAwait(true);
             }
         }
@@ -267,6 +315,18 @@ internal sealed class MainForm : Form
     void OnMainFormLoad(object? sender, EventArgs e)
     {
         ShowPage("home");
+        EnsureBackgroundServicesStarted();
+    }
+
+    protected override void SetVisibleCore(bool value)
+    {
+        if (_startMinimized && !_allowShow)
+        {
+            value = false;
+            if (!IsHandleCreated)
+                CreateHandle();
+        }
+        base.SetVisibleCore(value);
     }
 
     void OnFormClosing(object? sender, FormClosingEventArgs e)
@@ -282,6 +342,7 @@ internal sealed class MainForm : Form
 
     void ShowFromTray()
     {
+        _allowShow = true;
         Show();
         WindowState = FormWindowState.Normal;
         Activate();

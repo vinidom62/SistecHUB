@@ -230,40 +230,67 @@ public static class AppUpdateService
             _notifiedVersion = version;
         }
 
-        UpdateActivityLog.Info("Update", $"Actualização {version} pronta — a mostrar contagem regressiva.");
+        UpdateActivityLog.Info("Update", $"Actualização {version} pronta.");
 
-        if (owner is null)
+        var targetWindow = owner ?? Form.ActiveForm ?? (Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null);
+
+        if (targetWindow is Control { InvokeRequired: true } control)
         {
-            UpdateActivityLog.Warn("Update", "Sem janela principal — não foi possível mostrar contagem regressiva.");
-            return;
+            control.BeginInvoke(() => ApplyOrPromptRestart(targetWindow, version));
         }
+        else
+        {
+            ApplyOrPromptRestart(targetWindow, version);
+        }
+    }
 
+    static void ApplyOrPromptRestart(IWin32Window? owner, string version)
+    {
         try
         {
-            RunOnUiThread(owner, () => ShowCountdownAndRestart(owner, version));
+            // O aviso de 10s só é exibido se o SistecHub estiver aberto e visível na tela.
+            // Se estiver em segundo plano (minimizado na barra ou no tabuleiro), aplica sem exibir nada.
+            if (IsWindowVisibleOnScreen(owner))
+            {
+                UpdateActivityLog.Info("Update", $"SistecHub aberto na tela — a mostrar contagem regressiva de 10s para versão {version}.");
+                using var countdown = new SistecHub.UI.UpdateCountdownForm(version, seconds: 10);
+                countdown.ShowDialog(owner);
+                UpdateActivityLog.Info("Update", "Contagem regressiva concluída — reinício para aplicar actualização.");
+            }
+            else
+            {
+                UpdateActivityLog.Info("Update", $"SistecHub em segundo plano (minimizado ou oculto) — a reiniciar silenciosamente para aplicar actualização {version}.");
+            }
+
+            SignalApplyOnExit();
+            UpdateRestartRequested?.Invoke();
         }
         catch (Exception ex)
         {
-            UpdateActivityLog.LogException("Update", ex, "Falha ao mostrar contagem regressiva de actualização.");
+            UpdateActivityLog.LogException("Update", ex, "Falha ao processar reinício de actualização.");
         }
     }
 
-    static void RunOnUiThread(IWin32Window owner, Action action)
+    static bool IsWindowVisibleOnScreen(IWin32Window? window)
     {
-        if (owner is Control { InvokeRequired: true } control)
-            control.BeginInvoke(action);
-        else
-            action();
-    }
+        if (window is Form form)
+        {
+            return !form.IsDisposed
+                && form.Visible
+                && form.WindowState != FormWindowState.Minimized
+                && form.Opacity > 0;
+        }
 
-    static void ShowCountdownAndRestart(IWin32Window owner, string version)
-    {
-        using var countdown = new SistecHub.UI.UpdateCountdownForm(version, seconds: 10);
-        countdown.ShowDialog(owner);
+        if (window is Control control)
+        {
+            var parentForm = control.FindForm();
+            if (parentForm is not null)
+                return IsWindowVisibleOnScreen(parentForm);
 
-        UpdateActivityLog.Info("Update", "Reinício para aplicar actualização.");
-        SignalApplyOnExit();
-        UpdateRestartRequested?.Invoke();
+            return !control.IsDisposed && control.Visible;
+        }
+
+        return false;
     }
 
     /// <summary>Chamado ao fechar o app quando há update pendente — o serviço instala em silêncio.</summary>
@@ -272,6 +299,10 @@ public static class AppUpdateService
         if (!IsUpdateSupported || !IsUpdateReadyToApply())
             return;
 
+        var version = VelopackUpdateEngine.PendingRestart?.Version.ToString()
+            ?? UpdateServiceCoordinator.TryReadStatus()?.AvailableVersion;
+
+        UpdateServiceCoordinator.RequestReopenAppAfterUpdate(version);
         UpdateServiceCoordinator.RequestInstall();
         UpdateActivityLog.Info("Update", "App a fechar — actualização será aplicada pelo serviço.");
     }

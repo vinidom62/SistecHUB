@@ -82,26 +82,44 @@ internal static class InventarioSnapshotCoordinator
         return id;
     }
 
-    static void PollFromService()
+    public static DateTimeOffset? LastCollectedAt
+    {
+        get
+        {
+            lock (SnapshotLock)
+                return _lastUiSnapshotStamp;
+        }
+    }
+
+    public static void RequestRefreshNow()
+    {
+        InventarioServiceCoordinator.RequestRefresh();
+        PollFromService();
+    }
+
+    internal static bool PollFromService()
     {
         try
         {
             var ui = InventarioServiceCoordinator.TryReadUiSnapshot();
             if (ui is null)
-                return;
+                return false;
 
             if (_lastUiSnapshotStamp == ui.CollectedAt)
-                return;
+                return false;
 
-            _lastUiSnapshotStamp = ui.CollectedAt;
-            var snap = ToDisplaySnapshot(ui);
             lock (SnapshotLock)
-                _latest = snap;
+            {
+                _lastUiSnapshotStamp = ui.CollectedAt;
+                _latest = ToDisplaySnapshot(ui);
+            }
             SnapshotUpdated?.Invoke(null, EventArgs.Empty);
+            return true;
         }
         catch
         {
             // Mantém snapshot anterior.
+            return false;
         }
     }
 
@@ -128,7 +146,14 @@ internal static class InventarioSnapshotCoordinator
                 d.ArmazenamentoTotalGb,
                 d.ArmazenamentoUsadoGb)).ToList(),
             Array.Empty<MonitorInventario>(),
-            new SistemaOperacionalInventario("—", "—", "—", null),
+            new SistemaOperacionalInventario(
+                string.IsNullOrWhiteSpace(ui.OsNome) ? "—" : ui.OsNome,
+                string.IsNullOrWhiteSpace(ui.OsArquitetura) ? "—" : ui.OsArquitetura,
+                string.IsNullOrWhiteSpace(ui.OsVersao) ? "—" : ui.OsVersao,
+                null,
+                string.IsNullOrWhiteSpace(ui.OsStatusAtivacao) ? "Desconhecido" : ui.OsStatusAtivacao,
+                ui.OsChaveAtivacao,
+                ui.OsCanalLicenca),
             new AcessoRemotoInventario(null),
             new PostoTrabalhoInventario("—", null, "—", null, "—"));
 }

@@ -20,7 +20,14 @@ internal static class WindowsStartupRegistration
         }
         catch
         {
-            // Melhor esforço: falha não impede o app de iniciar.
+            try
+            {
+                EnsureStartupShortcut(Environment.SpecialFolder.Startup, exePath);
+            }
+            catch
+            {
+                // Melhor esforço: falha não impede o app de iniciar.
+            }
         }
     }
 
@@ -34,6 +41,7 @@ internal static class WindowsStartupRegistration
 
         using var link = new ShellLink();
         link.Target = exePath;
+        link.Arguments = "--autostart";
         link.WorkingDirectory = Path.GetDirectoryName(exePath)!;
         link.Description = AppReleaseConfig.PackTitle;
         link.Save(linkPath);
@@ -47,7 +55,8 @@ internal static class WindowsStartupRegistration
         try
         {
             using var link = new ShellLink(linkPath);
-            return string.Equals(link.Target, exePath, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(link.Target, exePath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(link.Arguments, "--autostart", StringComparison.OrdinalIgnoreCase);
         }
         catch
         {

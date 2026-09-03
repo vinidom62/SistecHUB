@@ -49,12 +49,15 @@ internal sealed record MonitorInventario(
     string? Modelo,
     string? NumeroSerie);
 
-/// <summary>Windows (registo + ambiente).</summary>
+/// <summary>Windows (registo + ambiente + licenciamento).</summary>
 internal sealed record SistemaOperacionalInventario(
     string NomeProduto,
     string Arquitetura,
     string VersaoAtual,
-    string? DataInstalacao);
+    string? DataInstalacao,
+    string StatusAtivacao = "Desconhecido",
+    string? ChaveAtivacao = null,
+    string? CanalLicenca = null);
 
 /// <summary>Ferramentas de acesso remoto detetadas localmente.</summary>
 internal sealed record AcessoRemotoInventario(string? AnyDeskId);

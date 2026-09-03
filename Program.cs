@@ -77,7 +77,13 @@ static class Program
                     return;
             }
 
-            Application.Run(new MainForm());
+            var isAutoStart = args.Any(a => string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase)
+                                         || string.Equals(a, "--startup", StringComparison.OrdinalIgnoreCase)
+                                         || string.Equals(a, "-minimized", StringComparison.OrdinalIgnoreCase));
+            var settings = AppSettingsStore.Load();
+            var startMinimized = isAutoStart && settings.IniciarMinimizado;
+
+            Application.Run(new MainForm(startMinimized));
         }
         finally
         {
@@ -93,12 +99,9 @@ static class Program
 
         if (status.Phase == UpdateServicePhase.Error)
         {
-            MessageBox.Show(
-                "A última atualização falhou:\n\n" + status.Message
-                + "\n\nConsulte update.log em Modo Debug ou em ProgramData\\SistecHub.",
-                "Atualização",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+            // Erros de atualização ocorrem em segundo plano e permanecem visíveis nas Configurações
+            // e em update.log, sem interromper o utilizador com janelas de aviso na abertura do app.
+            UpdateActivityLog.Warn("Update", "Último ciclo de atualização em segundo plano registou erro: " + status.Message);
             return;
         }
 

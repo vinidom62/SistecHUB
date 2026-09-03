@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SistecHub.Core;
 
 namespace SistecHub.Modulos.Inventario;
 
@@ -123,6 +124,15 @@ internal sealed class SistemaOperacionalRelatorioJson
 
     [JsonPropertyName("data_instalacao")]
     public string? DataInstalacao { get; init; }
+
+    [JsonPropertyName("status_ativacao")]
+    public string StatusAtivacao { get; init; } = "";
+
+    [JsonPropertyName("chave_ativacao")]
+    public string? ChaveAtivacao { get; init; }
+
+    [JsonPropertyName("canal_licenca")]
+    public string? CanalLicenca { get; init; }
 }
 
 internal sealed class AcessoRemotoRelatorioJson
@@ -158,6 +168,22 @@ internal sealed class PostoTrabalhoRelatorioJson
     public SistemaOperacionalRelatorioJson SistemaOperacional { get; init; } = new();
 }
 
+/// <summary>Informações do SistecHub e estado de actualização.</summary>
+internal sealed class SistecHubRelatorioJson
+{
+    [JsonPropertyName("versao_instalada")]
+    public string VersaoInstalada { get; init; } = "";
+
+    [JsonPropertyName("tem_erro_atualizacao")]
+    public bool TemErroAtualizacao { get; init; }
+
+    [JsonPropertyName("erro_atualizacao")]
+    public string? ErroAtualizacao { get; init; }
+
+    [JsonPropertyName("status_atualizacao")]
+    public string StatusAtualizacao { get; init; } = "";
+}
+
 /// <summary>Bloco <c>inventory</c> do payload PluginSistechubMachineInventory.</summary>
 internal sealed class InventarioRelatorioJson
 {
@@ -187,6 +213,9 @@ internal sealed class InventarioRelatorioJson
     [JsonPropertyName("acesso_remoto")]
     public AcessoRemotoRelatorioJson AcessoRemoto { get; init; } = new();
 
+    [JsonPropertyName("sistechub")]
+    public SistecHubRelatorioJson SistecHub { get; init; } = new();
+
     public static InventarioRelatorioJson FromSnapshot(
         in InventarioHardwareSnapshot snapshot,
         int? entidade = null)
@@ -206,6 +235,11 @@ internal sealed class InventarioRelatorioJson
         var so = snapshot.SistemaOperacional;
         var pt = snapshot.PostoTrabalho;
         var entidadeId = entidade ?? ResolveEntidadeId();
+        var updateStatus = UpdateServiceCoordinator.TryReadStatus();
+        var versaoInstalada = VelopackUpdateEngine.DisplayVersion;
+        var temErroAtualizacao = updateStatus?.Phase == UpdateServicePhase.Error;
+        var erroAtualizacao = temErroAtualizacao ? updateStatus?.Message : null;
+        var statusDescricao = UpdateServiceCoordinator.DescribeStatusForUi(updateStatus);
 
         return new InventarioRelatorioJson
         {
@@ -272,18 +306,28 @@ internal sealed class InventarioRelatorioJson
                     Arquitetura = so.Arquitetura,
                     VersaoAtual = so.VersaoAtual,
                     DataInstalacao = so.DataInstalacao,
+                    StatusAtivacao = so.StatusAtivacao,
+                    ChaveAtivacao = so.ChaveAtivacao,
+                    CanalLicenca = so.CanalLicenca,
                 },
             },
             AcessoRemoto = new AcessoRemotoRelatorioJson
             {
                 AnydeskId = NormalizeAnydeskId(snapshot.AcessoRemoto.AnyDeskId),
             },
+            SistecHub = new SistecHubRelatorioJson
+            {
+                VersaoInstalada = versaoInstalada,
+                TemErroAtualizacao = temErroAtualizacao,
+                ErroAtualizacao = erroAtualizacao,
+                StatusAtualizacao = statusDescricao,
+            },
         };
     }
 
     static int ResolveEntidadeId()
     {
-        var raw = SistecHub.Core.AppSettingsStore.Load().EntityId;
+        var raw = AppSettingsStore.Load().EntityId;
         return int.TryParse(raw?.Trim(), out var id) && id > 0 ? id : 0;
     }
 

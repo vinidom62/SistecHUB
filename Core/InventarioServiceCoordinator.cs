@@ -166,9 +166,21 @@ public sealed class InventarioUiSnapshot
     public string GpuTemperatureLine { get; set; } = "Temperatura: —";
 
     public string MotherboardSerialLine { get; set; } = "N.º de série: —";
-
+ 
+    public string OsNome { get; set; } = "—";
+ 
+    public string OsVersao { get; set; } = "—";
+ 
+    public string OsArquitetura { get; set; } = "—";
+ 
+    public string OsStatusAtivacao { get; set; } = "Desconhecido";
+ 
+    public string? OsChaveAtivacao { get; set; }
+ 
+    public string? OsCanalLicenca { get; set; }
+ 
     public InventarioUiDiscoSnapshot[] Discos { get; set; } = [];
-
+ 
     public DateTimeOffset CollectedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 

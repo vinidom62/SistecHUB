@@ -7,9 +7,12 @@ internal sealed class SettingsPasswordForm : Form
     readonly TextBox _passwordTextBox;
     readonly Label _errorLabel;
 
-    public SettingsPasswordForm()
+    public SettingsPasswordForm(
+        string formTitle = "Acesso às configurações",
+        string titleText = "Senha necessária",
+        string subtitleText = "Digite a senha para abrir as configurações.")
     {
-        Text = "Acesso às configurações";
+        Text = formTitle;
         ClientSize = new Size(420, 220);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -36,7 +39,7 @@ internal sealed class SettingsPasswordForm : Form
 
         var title = new Label
         {
-            Text = "Senha necessária",
+            Text = titleText,
             AutoSize = true,
             Font = new Font("Segoe UI", 16F, FontStyle.Bold, GraphicsUnit.Point),
             ForeColor = ShellTheme.TextPrimary,
@@ -46,7 +49,7 @@ internal sealed class SettingsPasswordForm : Form
 
         var subtitle = new Label
         {
-            Text = "Digite a senha para abrir as configurações.",
+            Text = subtitleText,
             AutoSize = true,
             MaximumSize = new Size(340, 0),
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),

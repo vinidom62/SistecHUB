@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using SistecHub.Core;
 using SistecHub.UI;
 
 namespace SistecHub.Modulos.Inventario;
@@ -18,6 +19,18 @@ public sealed class InventarioView : UserControl
     readonly Label _motherboardValue;
     readonly Label _motherboardSecondary;
     readonly FlowLayoutPanel _disksFlow;
+    readonly Button _refreshButton;
+    readonly Label _lastUpdateLabel;
+    readonly ToolTip _toolTip = new();
+
+    readonly Label _osNameLabel;
+    readonly Label _osVersionLabel;
+    readonly Label _osStatusBadge;
+    readonly Label _osKeyLabel;
+    readonly Button _revealKeyButton;
+    readonly Button _copyKeyButton;
+    string? _currentOsKey;
+    bool _isKeyRevealed;
 
     public InventarioView()
     {
@@ -33,18 +46,58 @@ public sealed class InventarioView : UserControl
         _motherboardSecondary = CreateSecondaryLabel();
         _disksFlow = CreateDisksFlow();
 
+        _osNameLabel = new Label();
+        _osVersionLabel = new Label();
+        _osStatusBadge = new Label();
+        _osKeyLabel = new Label();
+        _revealKeyButton = new Button();
+        _copyKeyButton = new Button();
+
+        _refreshButton = new Button
+        {
+            Text = "\uE72C",
+            Font = new Font("Segoe MDL2 Assets", 12F, FontStyle.Regular, GraphicsUnit.Point),
+            Width = 36,
+            Height = 32,
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = ShellTheme.TextPrimary,
+            BackColor = Color.FromArgb(241, 245, 249),
+            Cursor = Cursors.Hand,
+            Margin = new Padding(0),
+            Anchor = AnchorStyles.Right,
+        };
+        _refreshButton.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+        _refreshButton.FlatAppearance.BorderSize = 1;
+        _refreshButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(248, 250, 252);
+        _refreshButton.Click += async (_, _) => await OnRefreshClickedAsync().ConfigureAwait(true);
+        _toolTip.SetToolTip(_refreshButton, "Atualizar inventário");
+
+        _lastUpdateLabel = new Label
+        {
+            Text = "",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = ShellTheme.TextMuted,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 6, 10, 0),
+            TextAlign = ContentAlignment.MiddleRight,
+            Anchor = AnchorStyles.Right,
+        };
+
         var root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
-            Padding = new Padding(32, 24, 32, 28),
+            RowCount = 4,
+            Padding = new Padding(32, 20, 32, 24),
         };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, CompactCardHeight));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         root.Controls.Add(BuildHeader(), 0, 0);
+        root.Controls.Add(BuildOsBanner(), 0, 1);
 
         var cardsRow = new TableLayoutPanel
         {
@@ -63,8 +116,8 @@ public sealed class InventarioView : UserControl
         cardsRow.Controls.Add(CreateMetricCard("\uE714", "Placa de vídeo", _gpuValue, _gpuSecondary), 2, 0);
         cardsRow.Controls.Add(CreateMetricCard("\uE770", "Placa mãe", _motherboardValue, _motherboardSecondary), 3, 0);
 
-        root.Controls.Add(cardsRow, 0, 1);
-        root.Controls.Add(BuildDisksSection(_disksFlow), 0, 2);
+        root.Controls.Add(cardsRow, 0, 2);
+        root.Controls.Add(BuildDisksSection(_disksFlow), 0, 3);
 
         Controls.Add(root);
         InventarioSnapshotCoordinator.SnapshotUpdated += OnInventarioSnapshotUpdated;
@@ -72,31 +125,32 @@ public sealed class InventarioView : UserControl
         Load += OnInventarioLoad;
     }
 
-    static FlowLayoutPanel BuildHeader()
+    Control BuildHeader()
     {
-        var top = new FlowLayoutPanel
+        var headerTable = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 0, 0, 16),
+            Padding = Padding.Empty,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        };
+        headerTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        headerTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        headerTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        var leftStack = new FlowLayoutPanel
         {
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             BackColor = Color.Transparent,
+            Margin = Padding.Empty,
         };
-
-        var accentRow = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = Color.Transparent,
-        };
-        accentRow.Controls.Add(new Panel
-        {
-            Width = 56,
-            Height = 4,
-            BackColor = ShellTheme.Accent,
-        });
 
         var title = new Label
         {
@@ -105,12 +159,37 @@ public sealed class InventarioView : UserControl
             Font = new Font("Segoe UI", 20F, FontStyle.Bold, GraphicsUnit.Point),
             ForeColor = ShellTheme.TextPrimary,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 12),
+            Margin = new Padding(0, 0, 0, 8),
         };
 
-        top.Controls.Add(title);
-        top.Controls.Add(accentRow);
-        return top;
+        var accentBar = new Panel
+        {
+            Width = 56,
+            Height = 4,
+            BackColor = ShellTheme.Accent,
+            Margin = Padding.Empty,
+        };
+
+        leftStack.Controls.Add(title);
+        leftStack.Controls.Add(accentBar);
+
+        var rightStack = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 4, 10, 0),
+        };
+        rightStack.Controls.Add(_refreshButton);
+        rightStack.Controls.Add(_lastUpdateLabel);
+
+        headerTable.Controls.Add(leftStack, 0, 0);
+        headerTable.Controls.Add(rightStack, 1, 0);
+
+        return headerTable;
     }
 
     /// <summary>Cartão: título, ícone, valor principal e linha extra (temperatura, uso, série).</summary>
@@ -540,6 +619,7 @@ public sealed class InventarioView : UserControl
     {
         HandleDestroyed -= OnInventarioHandleDestroyed;
         InventarioSnapshotCoordinator.SnapshotUpdated -= OnInventarioSnapshotUpdated;
+        _toolTip.Dispose();
     }
 
     void OnInventarioSnapshotUpdated(object? sender, EventArgs e)
@@ -564,6 +644,15 @@ public sealed class InventarioView : UserControl
                     _gpuSecondary,
                     _motherboardSecondary);
                 RebuildDiskCards(null);
+                UpdateLastCollectedLabel();
+                _osNameLabel.Text = "Windows";
+                _osVersionLabel.Text = "";
+                _osStatusBadge.Text = "—";
+                _osStatusBadge.BackColor = Color.FromArgb(241, 245, 249);
+                _osStatusBadge.ForeColor = ShellTheme.TextMuted;
+                _currentOsKey = null;
+                _isKeyRevealed = false;
+                UpdateKeyDisplay();
             }
         });
     }
@@ -573,6 +662,213 @@ public sealed class InventarioView : UserControl
         Load -= OnInventarioLoad;
         if (InventarioSnapshotCoordinator.TryGetLatest() is { } snap)
             ApplySnapshotToUi(snap);
+        else
+            UpdateLastCollectedLabel();
+    }
+
+    Control BuildOsBanner()
+    {
+        var panel = new ElevatedCardPanel
+        {
+            Dock = DockStyle.Fill,
+            Height = 48,
+            MinimumSize = new Size(0, 48),
+            Margin = new Padding(0, 0, 10, 14),
+            Padding = new Padding(14, 0, 14, 0),
+            BackColor = Color.White,
+        };
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        var left = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+
+        var winIcon = new WindowsLogoControl();
+
+        _osNameLabel.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point);
+        _osNameLabel.ForeColor = ShellTheme.TextPrimary;
+        _osNameLabel.AutoSize = true;
+        _osNameLabel.Margin = new Padding(0, 14, 8, 0);
+
+        _osVersionLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+        _osVersionLabel.ForeColor = ShellTheme.TextMuted;
+        _osVersionLabel.AutoSize = true;
+        _osVersionLabel.Margin = new Padding(0, 15, 0, 0);
+
+        left.Controls.Add(winIcon);
+        left.Controls.Add(_osNameLabel);
+        left.Controls.Add(_osVersionLabel);
+
+        var right = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+
+        _copyKeyButton.Text = "\uE8C8";
+        _copyKeyButton.Font = new Font("Segoe MDL2 Assets", 10F, FontStyle.Regular, GraphicsUnit.Point);
+        _copyKeyButton.Size = new Size(28, 26);
+        _copyKeyButton.FlatStyle = FlatStyle.Flat;
+        _copyKeyButton.FlatAppearance.BorderSize = 0;
+        _copyKeyButton.BackColor = Color.FromArgb(241, 245, 249);
+        _copyKeyButton.ForeColor = ShellTheme.TextPrimary;
+        _copyKeyButton.Cursor = Cursors.Hand;
+        _copyKeyButton.Margin = new Padding(0, 11, 0, 0);
+        _toolTip.SetToolTip(_copyKeyButton, "Copiar chave de ativação");
+        _copyKeyButton.Click += OnCopyKeyClicked;
+        _copyKeyButton.Visible = false;
+
+        _revealKeyButton.Text = "\uE72E";
+        _revealKeyButton.Font = new Font("Segoe MDL2 Assets", 10F, FontStyle.Regular, GraphicsUnit.Point);
+        _revealKeyButton.Size = new Size(28, 26);
+        _revealKeyButton.FlatStyle = FlatStyle.Flat;
+        _revealKeyButton.FlatAppearance.BorderSize = 0;
+        _revealKeyButton.BackColor = Color.FromArgb(241, 245, 249);
+        _revealKeyButton.ForeColor = ShellTheme.TextPrimary;
+        _revealKeyButton.Cursor = Cursors.Hand;
+        _revealKeyButton.Margin = new Padding(0, 11, 4, 0);
+        _toolTip.SetToolTip(_revealKeyButton, "Clique para exibir a chave (requer senha de administrador)");
+        _revealKeyButton.Click += (_, _) => OnKeyRevealOrHideClicked();
+        _revealKeyButton.Visible = false;
+
+        _osKeyLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+        _osKeyLabel.ForeColor = ShellTheme.TextPrimary;
+        _osKeyLabel.AutoSize = true;
+        _osKeyLabel.Margin = new Padding(0, 15, 6, 0);
+        _osKeyLabel.Cursor = Cursors.Hand;
+        _osKeyLabel.Click += (_, _) => OnKeyRevealOrHideClicked();
+        _osKeyLabel.Visible = false;
+
+        _osStatusBadge.AutoSize = true;
+        _osStatusBadge.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold, GraphicsUnit.Point);
+        _osStatusBadge.Padding = new Padding(8, 4, 8, 4);
+        _osStatusBadge.Margin = new Padding(0, 11, 12, 0);
+
+        right.Controls.Add(_copyKeyButton);
+        right.Controls.Add(_revealKeyButton);
+        right.Controls.Add(_osKeyLabel);
+        right.Controls.Add(_osStatusBadge);
+
+        layout.Controls.Add(left, 0, 0);
+        layout.Controls.Add(right, 1, 0);
+        panel.Controls.Add(layout);
+
+        return panel;
+    }
+
+    void OnKeyRevealOrHideClicked()
+    {
+        if (string.IsNullOrWhiteSpace(_currentOsKey))
+            return;
+
+        if (_isKeyRevealed)
+        {
+            _isKeyRevealed = false;
+            UpdateKeyDisplay();
+            return;
+        }
+
+        using var prompt = new SettingsPasswordForm(
+            "Exibir Chave de Ativação",
+            "Senha de administrador",
+            "Digite a senha de administrador para visualizar a chave do Windows.");
+
+        if (prompt.ShowDialog(FindForm()) == DialogResult.OK)
+        {
+            _isKeyRevealed = true;
+            UpdateKeyDisplay();
+        }
+    }
+
+    void OnCopyKeyClicked(object? sender, EventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_currentOsKey))
+            return;
+
+        if (!_isKeyRevealed)
+        {
+            using var prompt = new SettingsPasswordForm(
+                "Copiar Chave de Ativação",
+                "Senha de administrador",
+                "Digite a senha de administrador para copiar a chave do Windows.");
+
+            if (prompt.ShowDialog(FindForm()) != DialogResult.OK)
+                return;
+
+            _isKeyRevealed = true;
+            UpdateKeyDisplay();
+        }
+
+        try
+        {
+            Clipboard.SetText(_currentOsKey);
+            _toolTip.SetToolTip(_copyKeyButton, "Chave copiada!");
+            _ = Task.Delay(2000).ContinueWith(_ =>
+            {
+                if (!IsDisposed && IsHandleCreated)
+                    BeginInvoke(() => _toolTip.SetToolTip(_copyKeyButton, "Copiar chave de ativação"));
+            });
+        }
+        catch
+        {
+            // falha de acesso à área de transferência
+        }
+    }
+
+    void UpdateKeyDisplay()
+    {
+        if (string.IsNullOrWhiteSpace(_currentOsKey))
+        {
+            _osKeyLabel.Visible = false;
+            _revealKeyButton.Visible = false;
+            _copyKeyButton.Visible = false;
+            return;
+        }
+
+        _osKeyLabel.Visible = true;
+        _revealKeyButton.Visible = true;
+        _copyKeyButton.Visible = true;
+
+        if (_isKeyRevealed)
+        {
+            _osKeyLabel.Text = $"Chave: {_currentOsKey}";
+            _revealKeyButton.Text = "\uE785"; // cadeado aberto
+            _revealKeyButton.ForeColor = Color.FromArgb(220, 38, 38);
+            _toolTip.SetToolTip(_revealKeyButton, "Ocultar chave de ativação");
+            _toolTip.SetToolTip(_osKeyLabel, "Chave de ativação do Windows (clique para ocultar)");
+        }
+        else
+        {
+            _osKeyLabel.Text = "Chave: *****-*****-*****-*****-*****";
+            _revealKeyButton.Text = "\uE72E"; // cadeado fechado
+            _revealKeyButton.ForeColor = ShellTheme.TextPrimary;
+            _toolTip.SetToolTip(_revealKeyButton, "Exibir chave (requer senha de administrador)");
+            _toolTip.SetToolTip(_osKeyLabel, "Clique para exibir a chave (requer senha de administrador)");
+        }
     }
 
     void ApplySnapshotToUi(in InventarioHardwareSnapshot snapshot)
@@ -586,6 +882,97 @@ public sealed class InventarioView : UserControl
         _gpuSecondary.Text = snapshot.GpuTemperatureLine;
         _motherboardSecondary.Text = snapshot.MotherboardSerialLine;
         RebuildDiskCards(snapshot.DiscosRigidos);
+        UpdateLastCollectedLabel();
+
+        var so = snapshot.SistemaOperacional;
+        _osNameLabel.Text = string.IsNullOrWhiteSpace(so.NomeProduto) || so.NomeProduto == "—"
+            ? "Windows"
+            : $"{so.NomeProduto} ({so.Arquitetura})";
+
+        _osVersionLabel.Text = string.IsNullOrWhiteSpace(so.VersaoAtual) || so.VersaoAtual == "—"
+            ? ""
+            : $"•  {so.VersaoAtual}";
+
+        var isAtivado = string.Equals(so.StatusAtivacao, "Ativado", StringComparison.OrdinalIgnoreCase);
+        if (isAtivado)
+        {
+            var channelInfo = !string.IsNullOrWhiteSpace(so.CanalLicenca) ? $" ({so.CanalLicenca})" : "";
+            _osStatusBadge.Text = $"✔ Ativado{channelInfo}";
+            _osStatusBadge.BackColor = Color.FromArgb(220, 252, 231);
+            _osStatusBadge.ForeColor = Color.FromArgb(22, 101, 52);
+        }
+        else
+        {
+            _osStatusBadge.Text = $"✖ {so.StatusAtivacao}";
+            _osStatusBadge.BackColor = Color.FromArgb(254, 226, 226);
+            _osStatusBadge.ForeColor = Color.FromArgb(153, 27, 27);
+        }
+        ShellTheme.ApplyRoundedRegion(_osStatusBadge, 6);
+
+        _currentOsKey = so.ChaveAtivacao;
+        UpdateKeyDisplay();
+    }
+
+    void UpdateLastCollectedLabel()
+    {
+        if (InventarioSnapshotCoordinator.LastCollectedAt is { } stamp)
+        {
+            var local = stamp.ToLocalTime();
+            _lastUpdateLabel.Text = $"Última atualização: {local:HH:mm:ss}";
+        }
+        else
+        {
+            _lastUpdateLabel.Text = "";
+        }
+    }
+
+    async Task OnRefreshClickedAsync()
+    {
+        if (!_refreshButton.Enabled)
+            return;
+
+        _refreshButton.Enabled = false;
+        _lastUpdateLabel.Text = "A atualizar inventário…";
+        _toolTip.SetToolTip(_refreshButton, "A atualizar…");
+
+        try
+        {
+            var previousStamp = InventarioSnapshotCoordinator.LastCollectedAt;
+            InventarioSnapshotCoordinator.RequestRefreshNow();
+
+            for (var i = 0; i < 20; i++)
+            {
+                await Task.Delay(400).ConfigureAwait(true);
+                if (IsDisposed)
+                    return;
+
+                if (InventarioSnapshotCoordinator.PollFromService()
+                    || InventarioSnapshotCoordinator.LastCollectedAt != previousStamp)
+                {
+                    break;
+                }
+            }
+
+            if (InventarioSnapshotCoordinator.TryGetLatest() is { } snap)
+                ApplySnapshotToUi(snap);
+        }
+        catch (Exception ex)
+        {
+            AppDebugLog.LogException("Inventario", ex, "Falha ao atualizar inventário");
+        }
+        finally
+        {
+            if (!IsDisposed && IsHandleCreated)
+            {
+                UpdateLastCollectedLabel();
+                await Task.Delay(3000).ConfigureAwait(true);
+                if (!IsDisposed)
+                {
+                    _refreshButton.Enabled = true;
+                    _toolTip.SetToolTip(_refreshButton, "Atualizar inventário");
+                }
+            }
+        }
     }
 
     static void ApplyInventoryLoadErrorUi(
@@ -667,6 +1054,31 @@ public sealed class InventarioView : UserControl
             e.Graphics.DrawPath(border, path);
             using var accent = new SolidBrush(ShellTheme.Accent);
             e.Graphics.FillRectangle(accent, 0, 10, 3, Math.Max(8, bounds.Height - 20));
+        }
+    }
+
+    sealed class WindowsLogoControl : Panel
+    {
+        public WindowsLogoControl()
+        {
+            Size = new Size(16, 16);
+            MinimumSize = new Size(16, 16);
+            Margin = new Padding(0, 15, 10, 0);
+            BackColor = Color.Transparent;
+            DoubleBuffered = true;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            using var brush = new SolidBrush(Color.FromArgb(0, 120, 215)); // Windows Blue #0078D7
+            // 4 quadrados simétricos com espaçamento de 2px
+            e.Graphics.FillRectangle(brush, 0, 0, 7, 7);
+            e.Graphics.FillRectangle(brush, 9, 0, 7, 7);
+            e.Graphics.FillRectangle(brush, 0, 9, 7, 7);
+            e.Graphics.FillRectangle(brush, 9, 9, 7, 7);
         }
     }
 }
