@@ -27,24 +27,35 @@ public static class PostUpdateAppReopen
         }
     }
 
-    public static Task TryReopenOnceAsync()
+    public static async Task TryReopenOnceAsync()
     {
         if (!UpdateServiceCoordinator.HasReopenAppRequest())
-            return Task.CompletedTask;
+            return;
 
         var version = TryReadReopenRequestVersion();
 
-        if (SistecHubAppProcess.IsRunning())
+        // 1. Dá prioridade ao watcher da sessão do utilizador e ignora a Sessão 0
+        // (onde os hooks transitórios do Velopack como --veloapp-updated executam).
+        if (SistecHubAppProcess.IsRunning(onlyInteractiveSession: true))
         {
-            UpdateActivityLog.Info("Update", "SistecHub detectado após actualização — pedido de reabertura concluído.");
+            UpdateActivityLog.Info("Update", "SistecHub detectado na sessão do utilizador após actualização — pedido de reabertura concluído.");
             MarkReopenCompleted(version);
-            return Task.CompletedTask;
+            return;
         }
 
+        // Aguarda 3 segundos para dar tempo ao watcher de sessão do usuário iniciar o processo
+        await Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+
+        if (SistecHubAppProcess.IsRunning(onlyInteractiveSession: true))
+        {
+            UpdateActivityLog.Info("Update", "SistecHub relançado com sucesso pelo watcher do utilizador — pedido de reabertura concluído.");
+            MarkReopenCompleted(version);
+            return;
+        }
+
+        // 2. Fallback: se o watcher não iniciou, o serviço tenta relançar via sessão ativa do utilizador
         if (InteractiveUserAppLauncher.TryLaunchMainAppInActiveSession("serviço pós-actualização"))
             MarkReopenCompleted(version);
-
-        return Task.CompletedTask;
     }
 
     static void MarkReopenCompleted(string? version)

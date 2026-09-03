@@ -21,9 +21,9 @@ public static class InteractiveUserAppLauncher
         if (!OperatingSystem.IsWindows())
             return false;
 
-        if (SistecHubAppProcess.IsRunning())
+        if (SistecHubAppProcess.IsRunning(onlyInteractiveSession: true))
         {
-            UpdateActivityLog.Info("Update", "SistecHub já está em execução — relançamento ignorado.");
+            UpdateActivityLog.Info("Update", "SistecHub já está em execução na sessão do utilizador — relançamento ignorado.");
             return true;
         }
 
@@ -126,28 +126,62 @@ public static class InteractiveUserAppLauncher
 
     static uint? TryGetInteractiveSessionId()
     {
-        var consoleSession = WTSGetActiveConsoleSessionId();
-        if (consoleSession is not 0xFFFFFFFF)
-            return consoleSession;
-
-        if (!WTSEnumerateSessions(IntPtr.Zero, 0, 1, out var sessionInfo, out var count))
-            return null;
-
-        try
+        // 1. Enumera sessões interativas com utilizador logado (suporta tanto RDP quanto consola local)
+        if (WTSEnumerateSessions(IntPtr.Zero, 0, 1, out var sessionInfo, out var count))
         {
-            var iter = sessionInfo;
-            for (var i = 0; i < count; i++)
+            try
             {
-                var session = Marshal.PtrToStructure<WTS_SESSION_INFO>(iter);
-                iter = IntPtr.Add(iter, Marshal.SizeOf<WTS_SESSION_INFO>());
+                var iter = sessionInfo;
+                uint? fallbackConnectedSession = null;
 
-                if (session.State is WTS_CONNECTSTATE_CLASS.WTSActive or WTS_CONNECTSTATE_CLASS.WTSConnected)
-                    return (uint)session.SessionId;
+                for (var i = 0; i < count; i++)
+                {
+                    var session = Marshal.PtrToStructure<WTS_SESSION_INFO>(iter);
+                    iter = IntPtr.Add(iter, Marshal.SizeOf<WTS_SESSION_INFO>());
+
+                    // Sessão 0 é reservada para serviços do Windows e não é interativa
+                    if (session.SessionId == 0)
+                        continue;
+
+                    var sId = (uint)session.SessionId;
+
+                    // Prioridade máxima: sessão com estado Ativo (WTSActive) que possui token de utilizador válido
+                    if (session.State == WTS_CONNECTSTATE_CLASS.WTSActive)
+                    {
+                        if (WTSQueryUserToken(sId, out var testToken))
+                        {
+                            CloseHandle(testToken);
+                            return sId;
+                        }
+                    }
+                    else if (session.State == WTS_CONNECTSTATE_CLASS.WTSConnected && fallbackConnectedSession is null)
+                    {
+                        if (WTSQueryUserToken(sId, out var testToken))
+                        {
+                            CloseHandle(testToken);
+                            fallbackConnectedSession = sId;
+                        }
+                    }
+                }
+
+                if (fallbackConnectedSession is not null)
+                    return fallbackConnectedSession;
+            }
+            finally
+            {
+                WTSFreeMemory(sessionInfo);
             }
         }
-        finally
+
+        // 2. Fallback: consola física, validando se possui token interativo
+        var consoleSession = WTSGetActiveConsoleSessionId();
+        if (consoleSession is not 0xFFFFFFFF and not 0)
         {
-            WTSFreeMemory(sessionInfo);
+            if (WTSQueryUserToken(consoleSession, out var testToken))
+            {
+                CloseHandle(testToken);
+                return consoleSession;
+            }
         }
 
         return null;

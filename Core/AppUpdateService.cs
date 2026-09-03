@@ -302,8 +302,9 @@ public static class AppUpdateService
         var version = VelopackUpdateEngine.PendingRestart?.Version.ToString()
             ?? UpdateServiceCoordinator.TryReadStatus()?.AvailableVersion;
 
+        UserSessionUpdateWatcher.LaunchWatcherProcess(version);
         UpdateServiceCoordinator.RequestReopenAppAfterUpdate(version);
         UpdateServiceCoordinator.RequestInstall();
-        UpdateActivityLog.Info("Update", "App a fechar — actualização será aplicada pelo serviço.");
+        UpdateActivityLog.Info("Update", "App a fechar — actualização será aplicada pelo serviço e relançada na sessão do utilizador.");
     }
 }
