@@ -57,9 +57,29 @@ public static class WindowsServiceGuard
         if (UpdateServiceCoordinator.IsServiceRecoveryLikelyUpdateRelated())
         {
             ServiceLogWriter.Info("App", "Serviço indisponível durante recuperação de actualização — a aguardar.");
-            using var waitForm = new ServiceStartupWaitForm();
-            if (waitForm.ShowDialog() == DialogResult.OK && IsRunning())
-                return;
+
+            var isSilent = Environment.GetCommandLineArgs().Any(a =>
+                string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(a, "--startup", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(a, "-minimized", StringComparison.OrdinalIgnoreCase));
+
+            if (isSilent)
+            {
+                // Em arranque silencioso/minimizado, aguarda o serviço em segundo plano sem abrir nenhuma janela na tela
+                for (var i = 0; i < 20 && !IsRunning(); i++)
+                {
+                    Thread.Sleep(1000);
+                }
+
+                if (IsRunning())
+                    return;
+            }
+            else
+            {
+                using var waitForm = new ServiceStartupWaitForm();
+                if (waitForm.ShowDialog() == DialogResult.OK && IsRunning())
+                    return;
+            }
         }
 
         ServiceLogWriter.Warn("App", "Serviço parado — a tentar iniciar...");

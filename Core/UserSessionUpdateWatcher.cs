@@ -35,17 +35,18 @@ public static class UserSessionUpdateWatcher
 
             // Script PowerShell invisível que corre dentro da sessão gráfica do utilizador.
             // 1. Aguarda o término do SistecHub atual (PID antigo).
-            // 2. Aguarda o serviço aplicar os ficheiros (update-status.json -> Completed).
-            // 3. Testa se o executável SistecHub.exe já está desbloqueado pelo Velopack.
-            // 4. Inicia o SistecHub.exe diretamente na sessão do utilizador.
+            // 2. Aguarda a atualização ser aplicada pelo serviço (verifica a versão real do executável no disco e o status).
+            // 3. Aguarda o ficheiro executável estar completamente desbloqueado.
+            // 4. Inicia o novo SistecHub.exe diretamente na sessão do utilizador (respeitando --autostart se minimizado).
             var psScript = $@"
 $ErrorActionPreference = 'SilentlyContinue'
 $targetExe = '{exePath.Replace("'", "''")}'
 $statusFile = '{statusFile.Replace("'", "''")}'
 $pidToWait = {currentPid}
 $launchArgs = '{args}'
+$expectedVer = '{expectedVersion?.Replace("'", "''") ?? ""}'
 
-# 1. Espera o processo anterior terminar
+# 1. Espera o processo antigo do SistecHub fechar completamente
 try {{
     $proc = Get-Process -Id $pidToWait -ErrorAction SilentlyContinue
     if ($proc) {{
@@ -53,28 +54,48 @@ try {{
     }}
 }} catch {{}}
 
-Start-Sleep -Milliseconds 1000
+Start-Sleep -Seconds 2
 
-# 2. Aguarda a atualização ser aplicada pelo serviço (status = Completed ou 6)
+# 2. Aguarda a atualização ser de facto aplicada
+# Não reabre enquanto o executável no disco for a versão antiga!
 $deadline = (Get-Date).AddSeconds(120)
 while ((Get-Date) -lt $deadline) {{
-    if (Test-Path $statusFile) {{
+    $verMatches = $false
+    if ($expectedVer -ne '' -and (Test-Path $targetExe)) {{
         try {{
-            $content = Get-Content -Path $statusFile -Raw -ErrorAction SilentlyContinue
-            if ($content -match '""phase""\s*:\s*(6|""Completed"")') {{
-                break
-            }}
-            if ($content -match '""phase""\s*:\s*(7|""Error"")') {{
-                # Em caso de erro, tenta reabrir a versão existente após breve pausa
-                break
+            $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($targetExe)
+            $prodVer = $info.ProductVersion
+            $fileVer = $info.FileVersion
+            if (($prodVer -and $prodVer -match [regex]::Escape($expectedVer)) -or ($fileVer -and $fileVer -match [regex]::Escape($expectedVer))) {{
+                $verMatches = $true
             }}
         }} catch {{}}
     }}
+
+    if (Test-Path $statusFile) {{
+        try {{
+            $content = Get-Content -Path $statusFile -Raw -ErrorAction SilentlyContinue
+            $isCompleted = ($content -match '""phase""\s*:\s*(6|""Completed"")')
+            $isError = ($content -match '""phase""\s*:\s*(7|""Error"")')
+
+            # Se a versão no executável já atualizou OU se o serviço gravou Completed para a nova versão
+            if ($verMatches -or ($isCompleted -and ($expectedVer -eq '' -or $content -match [regex]::Escape($expectedVer)))) {{
+                break
+            }}
+            if ($isError) {{
+                # Em caso de falha irreversível, reabre a versão existente
+                break
+            }}
+        }} catch {{}}
+    }} elseif ($verMatches) {{
+        break
+    }}
+
     Start-Sleep -Seconds 1
 }}
 
-# 3. Aguarda o ficheiro executável estar desbloqueado
-$fileDeadline = (Get-Date).AddSeconds(20)
+# 3. Aguarda o ficheiro executável estar completamente gravado e desbloqueado
+$fileDeadline = (Get-Date).AddSeconds(15)
 while ((Get-Date) -lt $fileDeadline) {{
     try {{
         $stream = [System.IO.File]::Open($targetExe, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
@@ -86,7 +107,7 @@ while ((Get-Date) -lt $fileDeadline) {{
     }}
 }}
 
-Start-Sleep -Milliseconds 500
+Start-Sleep -Seconds 1
 
 # 4. Inicia o SistecHub na sessão gráfica do utilizador
 if ($launchArgs -ne '') {{
@@ -108,7 +129,7 @@ if ($launchArgs -ne '') {{
             };
 
             Process.Start(startInfo);
-            UpdateActivityLog.Info("Update", $"Watcher na sessão do utilizador iniciado (PID {currentPid}, args: '{args}').");
+            UpdateActivityLog.Info("Update", $"Watcher na sessão do utilizador iniciado (PID {currentPid}, versao esperada: '{expectedVersion}', args: '{args}').");
         }
         catch (Exception ex)
         {

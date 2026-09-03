@@ -34,6 +34,26 @@ public static class PostUpdateAppReopen
 
         var version = TryReadReopenRequestVersion();
 
+        // Se o serviço ainda está a verificar, descarregar ou aplicar o update,
+        // NÃO relançar ainda — aguardar o ciclo terminar completamente.
+        var status = UpdateServiceCoordinator.TryReadStatus();
+        if (status?.Phase is UpdateServicePhase.Checking
+            or UpdateServicePhase.Downloading
+            or UpdateServicePhase.Applying
+            or UpdateServicePhase.PendingAppClose)
+        {
+            return;
+        }
+
+        // Se a versão pretendida ainda não foi aplicada no disco, aguarda o Velopack concluir.
+        if (!string.IsNullOrWhiteSpace(version)
+            && !string.Equals(VelopackUpdateEngine.DisplayVersion, version, StringComparison.OrdinalIgnoreCase)
+            && status?.Phase != UpdateServicePhase.Completed
+            && status?.Phase != UpdateServicePhase.Error)
+        {
+            return;
+        }
+
         // 1. Dá prioridade ao watcher da sessão do utilizador e ignora a Sessão 0
         // (onde os hooks transitórios do Velopack como --veloapp-updated executam).
         if (SistecHubAppProcess.IsRunning(onlyInteractiveSession: true))
@@ -43,8 +63,8 @@ public static class PostUpdateAppReopen
             return;
         }
 
-        // Aguarda 3 segundos para dar tempo ao watcher de sessão do usuário iniciar o processo
-        await Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+        // Aguarda 4 segundos para dar tempo ao watcher de sessão do usuário iniciar o processo
+        await Task.Delay(TimeSpan.FromSeconds(4)).ConfigureAwait(false);
 
         if (SistecHubAppProcess.IsRunning(onlyInteractiveSession: true))
         {

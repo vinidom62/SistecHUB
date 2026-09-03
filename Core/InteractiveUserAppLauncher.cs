@@ -71,7 +71,9 @@ public static class InteractiveUserAppLauncher
                         };
 
                         var processInfo = default(PROCESS_INFORMATION);
-                        var commandLine = $"\"{exePath}\"";
+                        var settings = AppSettingsStore.Load();
+                        var autostartFlag = settings.IniciarMinimizado ? " --autostart" : "";
+                        var commandLine = $"\"{exePath}\"{autostartFlag}";
                         var workingDirectory = Path.GetDirectoryName(exePath)!;
                         var creationFlags = environment != IntPtr.Zero ? CreateUnicodeEnvironment : 0u;
 

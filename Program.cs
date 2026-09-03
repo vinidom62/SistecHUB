@@ -53,11 +53,19 @@ static class Program
             .OnBeforeUninstallFastCallback(_ => WindowsServiceRegistration.Uninstall())
             .Run();
 
+        var isAutoStart = args.Any(a => string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase)
+                                     || string.Equals(a, "--startup", StringComparison.OrdinalIgnoreCase)
+                                     || string.Equals(a, "-minimized", StringComparison.OrdinalIgnoreCase));
+
         if (!SingleInstanceApp.TryEnterFirstInstance())
         {
             AppDebugLog.InstallGlobalHandlers();
-            AppDebugLog.Warn("App", "Segunda instância detetada — a activar janela existente.");
-            SingleInstanceApp.TryActivateExisting();
+            AppDebugLog.Warn("App", "Segunda instância detetada.");
+            if (!isAutoStart)
+            {
+                AppDebugLog.Info("App", "A ativar janela existente.");
+                SingleInstanceApp.TryActivateExisting();
+            }
             return;
         }
 
@@ -77,9 +85,6 @@ static class Program
                     return;
             }
 
-            var isAutoStart = args.Any(a => string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase)
-                                         || string.Equals(a, "--startup", StringComparison.OrdinalIgnoreCase)
-                                         || string.Equals(a, "-minimized", StringComparison.OrdinalIgnoreCase));
             var settings = AppSettingsStore.Load();
             var startMinimized = isAutoStart && settings.IniciarMinimizado;
 
