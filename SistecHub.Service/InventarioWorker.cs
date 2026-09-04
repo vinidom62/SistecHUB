@@ -88,7 +88,6 @@ public sealed class InventarioWorker
                 try
                 {
                     await CollectAndPersistAsync(stoppingToken).ConfigureAwait(false);
-                    lastCollect = DateTime.UtcNow;
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -99,6 +98,10 @@ public sealed class InventarioWorker
                     _logger.LogError(ex, "Coleta de inventário falhou.");
                     WriteErrorStatus(ex.Message);
                 }
+                finally
+                {
+                    lastCollect = DateTime.UtcNow;
+                }
             }
 
             if (uploadRequested || uploadDue)
@@ -107,7 +110,7 @@ public sealed class InventarioWorker
                 {
                     var uploaded = await TryUploadAsync(force: uploadRequested, stoppingToken)
                         .ConfigureAwait(false);
-                    if (uploaded)
+                    if (uploaded || uploadDue)
                         lastUpload = DateTime.UtcNow;
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -118,6 +121,8 @@ public sealed class InventarioWorker
                 {
                     _logger.LogError(ex, "Upload de inventário falhou.");
                     WriteErrorStatus(ex.Message);
+                    if (uploadDue)
+                        lastUpload = DateTime.UtcNow;
                 }
             }
 

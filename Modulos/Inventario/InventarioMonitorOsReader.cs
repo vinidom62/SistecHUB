@@ -104,8 +104,9 @@ internal static class InventarioMonitorOsReader
             using var searcher = new ManagementObjectSearcher(
                 "SELECT Name, Description, LicenseStatus, PartialProductKey, ProductKeyChannel, ApplicationId " +
                 "FROM SoftwareLicensingProduct WHERE PartialProductKey IS NOT NULL");
+            using var results = searcher.Get();
 
-            foreach (var o in searcher.Get())
+            foreach (var o in results)
             {
                 using (o as IDisposable)
                 {
@@ -161,14 +162,14 @@ internal static class InventarioMonitorOsReader
 
     static string? ReadProductKey(string? partialKey)
     {
+        // 1. Tenta decodificar a chave a partir do Registro (DigitalProductId)
+        string? decoded = null;
         try
         {
             using var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
             if (k?.GetValue("DigitalProductId") is byte[] raw)
             {
-                var decoded = DecodeDigitalProductId(raw);
-                if (!string.IsNullOrWhiteSpace(decoded))
-                    return decoded;
+                decoded = DecodeDigitalProductId(raw);
             }
         }
         catch
@@ -176,28 +177,50 @@ internal static class InventarioMonitorOsReader
             // ignorar
         }
 
-        try
+        // Se conseguir decodificar: verifica se os últimos dígitos são iguais ao que aparece no SoftwareLicensingProduct
+        if (!string.IsNullOrWhiteSpace(decoded) && !IsDummyDecodedKey(decoded))
         {
-            using var searcher = new ManagementObjectSearcher("SELECT OA3xOriginalProductKey FROM SoftwareLicensingService");
-            foreach (var o in searcher.Get())
+            if (!string.IsNullOrWhiteSpace(partialKey))
             {
-                using (o as IDisposable)
+                if (KeyEndsWithPartial(decoded, partialKey))
                 {
-                    var key = o["OA3xOriginalProductKey"]?.ToString()?.Trim();
-                    if (!string.IsNullOrWhiteSpace(key) && key.Length >= 20)
-                        return key;
+                    // Tudo ok: chave decodificada coincide com a licença ativa
+                    return decoded;
                 }
             }
-        }
-        catch
-        {
-            // ignorar
+            else
+            {
+                return decoded;
+            }
         }
 
+        // 2. Se não conseguir decodificar (ou se os últimos dígitos não baterem):
+        // Fica só os últimos dígitos e no final (Licença Digital)
         if (!string.IsNullOrWhiteSpace(partialKey))
-            return $"***** - ***** - ***** - ***** - {partialKey.Trim()}";
+        {
+            return $"***** - ***** - ***** - ***** - {partialKey.Trim()} (licença digital)";
+        }
 
-        return null;
+        return "licença digital";
+    }
+
+    static bool IsDummyDecodedKey(string key)
+    {
+        var clean = key.Replace("-", "").Trim();
+        return clean.Length < 20
+            || clean.StartsWith("BBBBB", StringComparison.OrdinalIgnoreCase)
+            || clean.All(c => c == 'B' || c == 'b');
+    }
+
+    static bool KeyEndsWithPartial(string fullKey, string partialKey)
+    {
+        var cleanFull = fullKey.Trim().Replace("-", "");
+        var cleanPartial = partialKey.Trim().Replace("-", "");
+
+        if (cleanFull.Length < cleanPartial.Length || cleanPartial.Length == 0)
+            return false;
+
+        return cleanFull.EndsWith(cleanPartial, StringComparison.OrdinalIgnoreCase);
     }
 
     static string? DecodeDigitalProductId(byte[] digitalProductId)
@@ -298,7 +321,8 @@ internal static class InventarioMonitorOsReader
         try
         {
             using var searcher = new ManagementObjectSearcher(@"root\wmi", "SELECT * FROM WmiMonitorID");
-            foreach (var o in searcher.Get())
+            using var results = searcher.Get();
+            foreach (var o in results)
             {
                 using (o as IDisposable)
                 {
