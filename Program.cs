@@ -18,6 +18,7 @@ static class Program
                 {
                     WindowsServiceRegistration.EnsureRegisteredOrFail();
                     WindowsStartupRegistration.EnsureRegistered();
+                    WindowsDesktopShortcutRegistration.EnsureRegistered(force: true);
                 }
                 catch (WindowsServiceSetupFailedException ex)
                 {
@@ -41,6 +42,7 @@ static class Program
                     "Update",
                     $"Hook OnAfterUpdate — versão nova {v}. A reiniciar serviço; reabertura da UI fica a cargo do serviço.");
                 WindowsServiceRegistration.TryEnsureServiceRunningAfterUpdate();
+                WindowsDesktopShortcutRegistration.EnsureRegistered(force: true);
                 UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
                 {
                     Phase = UpdateServicePhase.Completed,
@@ -77,6 +79,7 @@ static class Program
             ShowLastUpdateResultIfNeeded();
             WindowsServiceGuard.EnsureRunningOrExit();
             WindowsStartupRegistration.EnsureRegistered();
+            WindowsDesktopShortcutRegistration.EnsureRegistered();
 
             if (!AppSettingsStore.IsInitialSetupComplete())
             {

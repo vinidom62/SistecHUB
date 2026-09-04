@@ -878,8 +878,17 @@ public sealed class InventarioView : UserControl
         _gpuValue.Text = snapshot.Gpu;
         _motherboardValue.Text = snapshot.Motherboard;
         _cpuSecondary.Text = snapshot.CpuTemperatureLine;
+        if (!string.IsNullOrWhiteSpace(snapshot.ProcessadorInfo.SensorTemperatura))
+            _toolTip.SetToolTip(_cpuSecondary, $"Sensor utilizado: {snapshot.ProcessadorInfo.SensorTemperatura}");
+
         _ramSecondary.Text = snapshot.RamUsageLine;
         _gpuSecondary.Text = snapshot.GpuTemperatureLine;
+        var gpuSensors = string.Join(", ", snapshot.PlacasVideo
+            .Where(g => !string.IsNullOrWhiteSpace(g.SensorTemperatura))
+            .Select(g => $"{g.Nome}: {g.SensorTemperatura}"));
+        if (!string.IsNullOrWhiteSpace(gpuSensors))
+            _toolTip.SetToolTip(_gpuSecondary, $"Sensor utilizado: {gpuSensors}");
+
         _motherboardSecondary.Text = snapshot.MotherboardSerialLine;
         RebuildDiskCards(snapshot.DiscosRigidos);
         UpdateLastCollectedLabel();

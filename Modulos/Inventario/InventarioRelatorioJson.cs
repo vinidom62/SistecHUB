@@ -43,6 +43,10 @@ internal sealed class ProcessadorRelatorioJson
     [JsonPropertyName("temperatura_c")]
     public float? TemperaturaC { get; init; }
 
+    [JsonPropertyName("sensor_temperatura")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SensorTemperatura { get; init; }
+
     [JsonPropertyName("nucleos")]
     public int? Nucleos { get; init; }
 
@@ -76,6 +80,10 @@ internal sealed class PlacaVideoGpuRelatorioJson
 
     [JsonPropertyName("temperatura_c")]
     public float? TemperaturaC { get; init; }
+
+    [JsonPropertyName("sensor_temperatura")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SensorTemperatura { get; init; }
 }
 
 internal sealed class DiscoRigidoRelatorioJson
@@ -157,6 +165,9 @@ internal sealed class PostoTrabalhoRelatorioJson
 
     [JsonPropertyName("modelo_computador")]
     public string? ModeloComputador { get; init; }
+
+    [JsonPropertyName("numero_serie")]
+    public string? NumeroSerie { get; init; }
 
     [JsonPropertyName("utilizador")]
     public string Utilizador { get; init; } = "";
@@ -247,6 +258,7 @@ internal sealed class InventarioRelatorioJson
             {
                 Modelo = p.Modelo,
                 TemperaturaC = p.TemperaturaC,
+                SensorTemperatura = p.SensorTemperatura,
                 Nucleos = p.Nucleos,
                 Threads = p.Threads,
             },
@@ -281,6 +293,7 @@ internal sealed class InventarioRelatorioJson
                         Nome = g.Nome,
                         MemoriaGb = g.MemoriaGb,
                         TemperaturaC = g.TemperaturaC,
+                        SensorTemperatura = g.SensorTemperatura,
                     })
                     .ToList(),
             },
@@ -298,6 +311,7 @@ internal sealed class InventarioRelatorioJson
                 UtilizadorDominio = pt.UtilizadorDominio,
                 TipoComputador = pt.TipoComputador,
                 ModeloComputador = pt.ModeloComputador,
+                NumeroSerie = pt.NumeroSerie,
                 Utilizador = pt.Utilizador,
                 Dominio = pt.Dominio,
                 SistemaOperacional = new SistemaOperacionalRelatorioJson

@@ -60,9 +60,61 @@ internal static class InventarioPostoReader
         }
 
         var modelo = BuildModeloComputador(mfr, model);
+        var numeroSerie = ReadBiosSerialNumber();
         var (user, domain, line) = ResolveUtilizadorDominio(wmiUser);
 
-        return new PostoTrabalhoInventario(tipo, modelo, user, domain, line);
+        return new PostoTrabalhoInventario(tipo, modelo, numeroSerie, user, domain, line);
+    }
+
+    static string? ReadBiosSerialNumber()
+    {
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "root\\cimv2",
+                "SELECT SerialNumber FROM Win32_BIOS");
+            using var results = searcher.Get();
+            foreach (ManagementObject o in results)
+            {
+                using (o)
+                {
+                    var sn = o["SerialNumber"]?.ToString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(sn))
+                        return sn;
+                }
+
+                break;
+            }
+        }
+        catch
+        {
+            // ignorar
+        }
+
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "root\\cimv2",
+                "SELECT IdentifyingNumber FROM Win32_ComputerSystemProduct");
+            using var results = searcher.Get();
+            foreach (ManagementObject o in results)
+            {
+                using (o)
+                {
+                    var sn = o["IdentifyingNumber"]?.ToString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(sn))
+                        return sn;
+                }
+
+                break;
+            }
+        }
+        catch
+        {
+            // ignorar
+        }
+
+        return null;
     }
 
     static string MapPcSystemType(ushort? type) =>

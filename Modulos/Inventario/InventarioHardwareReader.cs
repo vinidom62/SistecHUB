@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using DiskInfoToolkit;
 using LibreHardwareMonitor.Hardware;
 using LibreHardwareMonitor.Hardware.Storage;
+using SistecHub.Core;
 
 namespace SistecHub.Modulos.Inventario;
 
@@ -21,7 +22,8 @@ internal sealed record ProcessadorDetalheInventario(
     double? Ghz,
     float? TemperaturaC,
     int? Nucleos,
-    int? Threads);
+    int? Threads,
+    string? SensorTemperatura = null);
 
 /// <summary>Placa-mãe a partir de SMBIOS (LibreHardwareMonitor).</summary>
 internal sealed record PlacaMaeDetalheInventario(
@@ -32,7 +34,8 @@ internal sealed record PlacaMaeDetalheInventario(
 internal sealed record PlacaVideoDetalheInventario(
     string Nome,
     float? MemoriaGb,
-    float? TemperaturaC);
+    float? TemperaturaC,
+    string? SensorTemperatura = null);
 
 /// <summary>Disco físico (grupo Storage do LibreHardwareMonitor).</summary>
 internal sealed record DiscoRigidoInventario(
@@ -66,6 +69,7 @@ internal sealed record AcessoRemotoInventario(string? AnyDeskId);
 internal sealed record PostoTrabalhoInventario(
     string TipoComputador,
     string? ModeloComputador,
+    string? NumeroSerie,
     string Utilizador,
     string? Dominio,
     string UtilizadorDominio);
@@ -143,14 +147,27 @@ internal static class InventarioHardwareReader
             var gpu = GetGpuDisplay(flat);
             var mb = GetMotherboardDisplay(flat);
 
-            var cpuTemp = FormatCpuTemperatureLine(GetCpuTemperatureCelsius(flat));
-            var ramUse = FormatRamUsageLine(GetRamLoadPercent(flat));
-            var gpuTemp = FormatGpuTemperatureLine(GetGpuTemperatureCelsius(flat));
-            var mbSerial = FormatMotherboardSerialLine(computer);
-
             var procInfo = BuildProcessadorDetalhe(flat, computer, cpu);
             var mbInfo = BuildPlacaMaeDetalhe(computer);
             var gpusInfo = BuildPlacasVideoDetalhe(flat);
+
+            if (procInfo.TemperaturaC is not null)
+            {
+                ServiceLogWriter.Info("Inventario", $"Temperatura CPU: {procInfo.TemperaturaC.Value:0.#} °C (sensor: '{procInfo.SensorTemperatura ?? "N/D"}').");
+            }
+            foreach (var g in gpusInfo)
+            {
+                if (g.TemperaturaC is not null)
+                {
+                    ServiceLogWriter.Info("Inventario", $"Temperatura GPU '{g.Nome}': {g.TemperaturaC.Value:0.#} °C (sensor: '{g.SensorTemperatura ?? "N/D"}').");
+                }
+            }
+
+            var cpuTemp = FormatCpuTemperatureLine(procInfo.TemperaturaC);
+            var ramUse = FormatRamUsageLine(GetRamLoadPercent(flat));
+            var gpuTemp = FormatGpuTemperatureLine(gpusInfo);
+            var mbSerial = FormatMotherboardSerialLine(computer);
+
             var discos = BuildDiscosRigidos(flat);
             var monitores = InventarioMonitorOsReader.ReadMonitors();
             var so = InventarioMonitorOsReader.ReadSistemaOperacional();
@@ -252,7 +269,7 @@ internal static class InventarioHardwareReader
         Computer computer,
         string modeloFallback)
     {
-        var temp = GetCpuTemperatureCelsius(flat);
+        var (temp, sensorName) = GetCpuTemperatureWithSensor(flat);
         var ghz = GetCpuClockGhz(flat, computer);
         var (cores, threads) = GetCpuCoresThreadsFromSmbios(computer);
         return new ProcessadorDetalheInventario(
@@ -260,7 +277,8 @@ internal static class InventarioHardwareReader
             ghz,
             temp,
             cores,
-            threads);
+            threads,
+            sensorName);
     }
 
     /// <summary>Maior relógio (MHz) nos sensores Clock da CPU → GHz; senão SMBIOS CurrentSpeed/MaxSpeed (MHz).</summary>
@@ -361,18 +379,9 @@ internal static class InventarioHardwareReader
             if (name.Length == 0 || ShouldExcludeGpuName(name))
                 continue;
 
-            float? tempMax = null;
-            foreach (var s in h.Sensors)
-            {
-                if (s.SensorType != SensorType.Temperature || s.Value is null)
-                    continue;
-                var v = s.Value.Value;
-                if (tempMax is null || v > tempMax)
-                    tempMax = v;
-            }
-
+            var (temp, sensorName) = SelectBestGpuSensor(h);
             var vramGb = TryGetGpuDedicatedMemoryGb(h);
-            list.Add(new PlacaVideoDetalheInventario(name, vramGb, tempMax));
+            list.Add(new PlacaVideoDetalheInventario(name, vramGb, temp, sensorName));
         }
 
         return list;
@@ -1437,10 +1446,19 @@ internal static class InventarioHardwareReader
         return "—";
     }
 
-    /// <summary>Maior temperatura reportada nos sensores da CPU (°C).</summary>
-    static float? GetCpuTemperatureCelsius(IReadOnlyList<IHardware> hardware)
+    /// <summary>
+    /// Seleciona a temperatura da CPU seguindo o padrão da indústria:
+    /// 1. CPU Package (padrão oficial global da Intel e AMD)
+    /// 2. AMD Core (Tdie) (temperatura real sem offset de ventoinha Tctl)
+    /// 3. AMD Core (Tctl/Tdie) (AMD Ryzen unificado)
+    /// 4. Core Average
+    /// 5. CPU Core
+    /// 6. Média dos núcleos individuais (Core #1..N)
+    /// Ignora explicitamente TjMax, Distance to TjMax, Target, etc.
+    /// </summary>
+    static (float? Value, string? SensorName) GetCpuTemperatureWithSensor(IReadOnlyList<IHardware> hardware)
     {
-        float? max = null;
+        var cpuSensors = new List<ISensor>();
         foreach (var h in hardware)
         {
             if (h.HardwareType != HardwareType.Cpu)
@@ -1449,55 +1467,145 @@ internal static class InventarioHardwareReader
             {
                 if (s.SensorType != SensorType.Temperature || s.Value is null)
                     continue;
+
                 var v = s.Value.Value;
-                if (max is null || v > max.Value)
-                    max = v;
-            }
-        }
-
-        return max;
-    }
-
-    /// <summary>Por cada GPU não virtual, usa a maior temperatura; várias GPUs: valores separados por ·.</summary>
-    static string? GetGpuTemperatureCelsius(IReadOnlyList<IHardware> hardware)
-    {
-        var parts = new List<string>();
-        foreach (var h in hardware)
-        {
-            if (h.HardwareType is not (HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel))
-                continue;
-            var name = h.Name.Trim();
-            if (name.Length == 0 || ShouldExcludeGpuName(name))
-                continue;
-
-            float? max = null;
-            foreach (var s in h.Sensors)
-            {
-                if (s.SensorType != SensorType.Temperature || s.Value is null)
+                if (v <= 0 || v >= 125)
                     continue;
-                var v = s.Value.Value;
-                if (max is null || v > max.Value)
-                    max = v;
-            }
 
-            if (max is not null)
-                parts.Add($"{max.Value:0} °C");
+                if (IsExcludedCpuSensorName(s.Name))
+                    continue;
+
+                cpuSensors.Add(s);
+            }
         }
 
-        if (parts.Count == 0)
-            return null;
-        return string.Join(" · ", parts);
+        if (cpuSensors.Count == 0)
+            return (null, null);
+
+        // 1. CPU Package (padrão oficial global)
+        var package = cpuSensors.FirstOrDefault(s => s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase));
+        if (package is not null && package.Value.HasValue)
+            return (package.Value.Value, package.Name);
+
+        // 2. AMD Core (Tdie) puro (sem offset de ventoinha Tctl)
+        var tdie = cpuSensors.FirstOrDefault(s =>
+            s.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase)
+            && !s.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase));
+        if (tdie is not null && tdie.Value.HasValue)
+            return (tdie.Value.Value, tdie.Name);
+
+        // 3. AMD Core (Tctl/Tdie) unificado
+        var tctlTdie = cpuSensors.FirstOrDefault(s =>
+            s.Name.Contains("Tctl/Tdie", StringComparison.OrdinalIgnoreCase));
+        if (tctlTdie is not null && tctlTdie.Value.HasValue)
+            return (tctlTdie.Value.Value, tctlTdie.Name);
+
+        // 4. Core Average
+        var coreAvg = cpuSensors.FirstOrDefault(s =>
+            s.Name.Contains("Average", StringComparison.OrdinalIgnoreCase));
+        if (coreAvg is not null && coreAvg.Value.HasValue)
+            return (coreAvg.Value.Value, coreAvg.Name);
+
+        // 5. CPU Core
+        var cpuCore = cpuSensors.FirstOrDefault(s =>
+            s.Name.Equals("CPU Core", StringComparison.OrdinalIgnoreCase)
+            || s.Name.Equals("Core", StringComparison.OrdinalIgnoreCase));
+        if (cpuCore is not null && cpuCore.Value.HasValue)
+            return (cpuCore.Value.Value, cpuCore.Name);
+
+        // 6. Média dos núcleos individuais (Core #1, Core #2...)
+        var coreSensors = cpuSensors
+            .Where(s => s.Name.StartsWith("Core #", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (coreSensors.Count > 0)
+        {
+            var avg = coreSensors.Average(s => s.Value!.Value);
+            return ((float)avg, $"Média dos Núcleos ({coreSensors.Count} cores)");
+        }
+
+        // 7. Fallback: primeiro sensor válido
+        return (cpuSensors[0].Value!.Value, cpuSensors[0].Name);
     }
+
+    static bool IsExcludedCpuSensorName(string name) =>
+        name.Contains("TjMax", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Tj Max", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Tj-Max", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Distance", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Target", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Limit", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Offset", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Seleciona a temperatura de uma GPU seguindo o padrão da indústria:
+    /// 1. GPU Core (ou Core / GPU Temperature) — padrão exibido no Gerenciador de Tarefas, MSI Afterburner, etc.
+    /// 2. Primeiro sensor que NÃO seja Hot Spot / Junction / Memory / VRAM / VRM.
+    /// 3. Fallback: menor temperatura reportada da GPU (evitando cair em Hot Spot inflado).
+    /// </summary>
+    static (float? Value, string? SensorName) SelectBestGpuSensor(IHardware gpuHardware)
+    {
+        var validSensors = new List<ISensor>();
+        foreach (var s in gpuHardware.Sensors)
+        {
+            if (s.SensorType != SensorType.Temperature || s.Value is null)
+                continue;
+
+            var v = s.Value.Value;
+            if (v <= 0 || v >= 130)
+                continue;
+
+            validSensors.Add(s);
+        }
+
+        if (validSensors.Count == 0)
+            return (null, null);
+
+        // 1. GPU Core (padrão absoluto)
+        var core = validSensors.FirstOrDefault(s =>
+            s.Name.Equals("GPU Core", StringComparison.OrdinalIgnoreCase)
+            || s.Name.Equals("Core", StringComparison.OrdinalIgnoreCase)
+            || s.Name.Equals("GPU Temperature", StringComparison.OrdinalIgnoreCase));
+        if (core is not null && core.Value.HasValue)
+            return (core.Value.Value, core.Name);
+
+        // 2. Sensores que não sejam Hot Spot / Junction / Memory / VRAM / VRM
+        var nonHotSpot = validSensors
+            .Where(s => !IsExcludedGpuSecondarySensorName(s.Name))
+            .ToList();
+        if (nonHotSpot.Count > 0)
+            return (nonHotSpot[0].Value!.Value, nonHotSpot[0].Name);
+
+        // 3. Fallback: menor temperatura (evita pegar Hot Spot ou VRAM inflados)
+        var minSensor = validSensors.OrderBy(s => s.Value!.Value).First();
+        return (minSensor.Value!.Value, minSensor.Name);
+    }
+
+    static bool IsExcludedGpuSecondarySensorName(string name) =>
+        name.Contains("Hot", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Junction", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Memory", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("VRAM", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("VRM", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Power", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("Ambient", StringComparison.OrdinalIgnoreCase);
 
     static string FormatCpuTemperatureLine(float? celsius) =>
         celsius is null
             ? "Temperatura: —"
             : $"Temperatura: {celsius.Value:0} °C";
 
-    static string FormatGpuTemperatureLine(string? celsiusParts) =>
-        string.IsNullOrWhiteSpace(celsiusParts)
-            ? "Temperatura: —"
-            : $"Temperatura: {celsiusParts}";
+    static string FormatGpuTemperatureLine(IReadOnlyList<PlacaVideoDetalheInventario> gpus)
+    {
+        var parts = gpus
+            .Where(g => g.TemperaturaC.HasValue)
+            .Select(g => $"{g.TemperaturaC!.Value:0} °C")
+            .ToList();
+
+        if (parts.Count == 0)
+            return "Temperatura: —";
+
+        return $"Temperatura: {string.Join(" · ", parts)}";
+    }
 
     static string FormatRamUsageLine(float? loadPercent) =>
         loadPercent is null

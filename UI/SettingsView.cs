@@ -268,7 +268,7 @@ internal sealed class SettingsView : UserControl
 
         _iniciarMinimizadoCheckBox = new CheckBox
         {
-            Text = "Inicializar minimizado",
+            Text = "Iniciar em segundo plano",
             AutoSize = true,
             Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
             ForeColor = ShellTheme.TextPrimary,

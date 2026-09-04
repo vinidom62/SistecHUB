@@ -17,8 +17,8 @@ public sealed class AppUserSettings
     /// <summary>Id do computador no plugin SistecHub Machines (GLPI).</summary>
     public string GlpiMachineId { get; set; } = "";
 
-    /// <summary>Quando ativo, o SistecHub inicia minimizado ao arrancar com o Windows.</summary>
-    public bool IniciarMinimizado { get; set; } = false;
+    /// <summary>Quando ativo, o SistecHub inicia em segundo plano ao arrancar com o Windows.</summary>
+    public bool IniciarMinimizado { get; set; } = true;
 }
 
 /// <summary>Conteúdo público persistido em <c>settings.json</c> (sem credenciais).</summary>
@@ -28,7 +28,7 @@ sealed class PersistedAppSettings
 
     public string GlpiMachineId { get; set; } = "";
 
-    public bool IniciarMinimizado { get; set; } = false;
+    public bool IniciarMinimizado { get; set; } = true;
 }
 
 /// <summary>Carrega e grava <see cref="AppUserSettings"/>.</summary>

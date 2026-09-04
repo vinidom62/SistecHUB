@@ -155,5 +155,5 @@ internal static class InventarioSnapshotCoordinator
                 ui.OsChaveAtivacao,
                 ui.OsCanalLicenca),
             new AcessoRemotoInventario(null),
-            new PostoTrabalhoInventario("—", null, "—", null, "—"));
+            new PostoTrabalhoInventario("—", null, null, "—", null, "—"));
 }
