@@ -7,6 +7,9 @@
     <RootNamespace>SistecHub.Service</RootNamespace>
     <AssemblyName>SistecHub.Service</AssemblyName>
     <Version>1.6.1</Version>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <RetainVMGarbageCollection>false</RetainVMGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,6 +36,7 @@
     <Compile Include="..\Core\UpdateServiceCoordinator.cs" Link="Shared\UpdateServiceCoordinator.cs" />
     <Compile Include="..\Core\InventarioServiceCoordinator.cs" Link="Shared\InventarioServiceCoordinator.cs" />
     <Compile Include="..\Core\PawnIoInstaller.cs" Link="Shared\PawnIoInstaller.cs" />
+    <Compile Include="..\Core\MemoryOptimizer.cs" Link="Shared\MemoryOptimizer.cs" />
     <Compile Include="..\Core\UpdateActivityLog.cs" Link="Shared\UpdateActivityLog.cs" />
     <Compile Include="..\Core\VelopackUpdateEngine.cs" Link="Shared\VelopackUpdateEngine.cs" />
     <Compile Include="..\Core\VelopackInstallLocator.cs" Link="Shared\VelopackInstallLocator.cs" />

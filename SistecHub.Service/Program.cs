@@ -88,11 +88,31 @@ static class Program
 
             Environment.ProcessPath ?? "(desconhecido)");
 
-
+        CleanupLegacyCommonStartup(startupLogger);
 
         host.Run();
 
     }
 
+    static void CleanupLegacyCommonStartup(ILogger? logger)
+    {
+        try
+        {
+            var commonStartup = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup);
+            if (string.IsNullOrWhiteSpace(commonStartup) || !Directory.Exists(commonStartup))
+                return;
+
+            var legacyLink = Path.Combine(commonStartup, $"{AppReleaseConfig.PackTitle}.lnk");
+            if (File.Exists(legacyLink))
+            {
+                File.Delete(legacyLink);
+                logger?.LogInformation("Atalho legado em CommonStartup removido: {Path}", legacyLink);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Falha ao remover atalho legado em CommonStartup.");
+        }
+    }
 }
 

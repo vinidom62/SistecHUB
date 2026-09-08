@@ -94,7 +94,7 @@ $packArgs = @(
     "--mainExe", "SistecHub.exe",
     "--outputDir", $ReleasesDir,
     "--icon", $Icon,
-    "--shortcuts", "Desktop,StartMenuRoot,Startup",
+    "--shortcuts", "Desktop,StartMenuRoot",
     "--msi",
     "--instLocation", "PerMachine"
 )

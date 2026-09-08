@@ -76,6 +76,8 @@ public sealed class UpdateCheckWorker
                     && !betaCheckRequested
                     && !shouldApplyPending)
                     lastAutomaticCheck = DateTime.UtcNow;
+
+                MemoryOptimizer.TrimWorkingSet();
             }
 
             var wait = installRequested || checkRequested || betaCheckRequested || shouldApplyPending

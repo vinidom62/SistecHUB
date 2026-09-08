@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using SistecHub.Core;
@@ -10,7 +12,7 @@ public sealed class InventarioWorker
 {
     static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(15);
     static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
-    static readonly TimeSpan CollectInterval = TimeSpan.FromSeconds(30);
+    static readonly TimeSpan CollectInterval = TimeSpan.FromMinutes(30);
     static readonly TimeSpan UploadInterval = TimeSpan.FromMinutes(30);
 
     static readonly JsonSerializerOptions ReportJsonOptions = new()
@@ -29,8 +31,8 @@ public sealed class InventarioWorker
     public async Task RunLoopAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "Inventário worker activo. Coleta: {Collect}s | Upload: {Upload}min.",
-            CollectInterval.TotalSeconds,
+            "Inventário worker activo. Coleta: {Collect}min | Upload: {Upload}min.",
+            CollectInterval.TotalMinutes,
             UploadInterval.TotalMinutes);
 
         await Task.Delay(StartupDelay, stoppingToken).ConfigureAwait(false);
@@ -40,8 +42,9 @@ public sealed class InventarioWorker
             // Safety net para clientes antigos quando o ServiceSetup não correu ou o setup não vinha no pacote.
             PawnIoInstaller.EnsureInstalled();
             await EnsureMachineRegisteredAsync(stoppingToken).ConfigureAwait(false);
-            await CollectAndPersistAsync(stoppingToken).ConfigureAwait(false);
-            await TryUploadAsync(force: true, stoppingToken).ConfigureAwait(false);
+            var initSnapshot = await CollectAndPersistAsync(stoppingToken).ConfigureAwait(false);
+            await TryUploadAsync(initSnapshot, force: true, stoppingToken).ConfigureAwait(false);
+            MemoryOptimizer.TrimWorkingSet();
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -83,11 +86,21 @@ public sealed class InventarioWorker
                 }
             }
 
+            InventarioHardwareSnapshot? latestSnapshot = null;
+            var didWork = false;
+
             if (refreshRequested || collectDue || uploadRequested || uploadDue)
             {
+                if (refreshRequested)
+                {
+                    InventarioMonitorOsReader.InvalidateCache();
+                    InventarioPostoReader.InvalidateCache();
+                }
+
                 try
                 {
-                    await CollectAndPersistAsync(stoppingToken).ConfigureAwait(false);
+                    latestSnapshot = await CollectAndPersistAsync(stoppingToken).ConfigureAwait(false);
+                    didWork = true;
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -108,10 +121,11 @@ public sealed class InventarioWorker
             {
                 try
                 {
-                    var uploaded = await TryUploadAsync(force: uploadRequested, stoppingToken)
+                    var uploaded = await TryUploadAsync(latestSnapshot, force: uploadRequested, stoppingToken)
                         .ConfigureAwait(false);
                     if (uploaded || uploadDue)
                         lastUpload = DateTime.UtcNow;
+                    didWork = true;
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -124,6 +138,11 @@ public sealed class InventarioWorker
                     if (uploadDue)
                         lastUpload = DateTime.UtcNow;
                 }
+            }
+
+            if (didWork)
+            {
+                MemoryOptimizer.TrimWorkingSet();
             }
 
             await Task.Delay(PollInterval, stoppingToken).ConfigureAwait(false);
@@ -165,10 +184,10 @@ public sealed class InventarioWorker
         }
     }
 
-    async Task CollectAndPersistAsync(CancellationToken cancellationToken)
+    async Task<InventarioHardwareSnapshot?> CollectAndPersistAsync(CancellationToken cancellationToken)
     {
         if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-            return;
+            return null;
 
         try
         {
@@ -205,6 +224,8 @@ public sealed class InventarioWorker
                 NewlyRegisteredMachineId = prev?.NewlyRegisteredMachineId,
                 UpdatedAt = DateTimeOffset.UtcNow,
             });
+
+            return snapshot;
         }
         finally
         {
@@ -212,7 +233,7 @@ public sealed class InventarioWorker
         }
     }
 
-    async Task<bool> TryUploadAsync(bool force, CancellationToken cancellationToken)
+    async Task<bool> TryUploadAsync(InventarioHardwareSnapshot? preCollectedSnapshot, bool force, CancellationToken cancellationToken)
     {
         var settings = AppSettingsStore.Load();
         if (!AppSettingsStore.IsInitialSetupComplete(settings))
@@ -247,7 +268,7 @@ public sealed class InventarioWorker
                 UpdatedAt = DateTimeOffset.UtcNow,
             });
 
-            var snapshot = await Task.Run(InventarioHardwareReader.ReadInventory, cancellationToken)
+            var snapshot = preCollectedSnapshot ?? await Task.Run(InventarioHardwareReader.ReadInventory, cancellationToken)
                 .ConfigureAwait(false);
 
             _ = await InventarioGlpiInventoryUpload.PostInventoryPayloadAsync(snapshot, settings, cancellationToken)
@@ -280,13 +301,13 @@ public sealed class InventarioWorker
         }
     }
 
-    static void WriteErrorStatus(string message)
+    void WriteErrorStatus(string error)
     {
         var prev = InventarioServiceCoordinator.TryReadStatus();
         InventarioServiceCoordinator.WriteStatus(new InventarioServiceStatus
         {
             Phase = InventarioServicePhase.Error,
-            Message = message,
+            Message = "Erro: " + error,
             LastCollectUtc = prev?.LastCollectUtc,
             LastUploadUtc = prev?.LastUploadUtc,
             NewlyRegisteredMachineId = prev?.NewlyRegisteredMachineId,

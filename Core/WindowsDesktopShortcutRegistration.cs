@@ -3,12 +3,15 @@ using Velopack.Windows;
 namespace SistecHub.Core;
 
 /// <summary>
-/// Garante que o atalho do SistecHub exista na Área de Trabalho após a instalação e atualizações.
+/// Garante que exista exatamente um atalho do SistecHub na Área de Trabalho,
+/// desduplicando cópias redundantes entre a Área de Trabalho pública e a do utilizador.
 /// </summary>
 internal static class WindowsDesktopShortcutRegistration
 {
     /// <summary>
-    /// Verifica se a máquina possui o atalho na Área de Trabalho e, caso não tenha, cria-o automaticamente.
+    /// Verifica se a máquina possui atalho na Área de Trabalho.
+    /// Se já existir na Área de Trabalho pública, remove atalhos redundantes do utilizador para evitar 2 ícones.
+    /// Se não existir nenhum, cria-o automaticamente.
     /// </summary>
     /// <param name="force">Se true, ignora a validação de ambiente de desenvolvimento/instalação.</param>
     public static void EnsureRegistered(bool force = false)
@@ -23,29 +26,32 @@ internal static class WindowsDesktopShortcutRegistration
         if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
             return;
 
-        if (HasDesktopShortcut(exePath))
+        var rootStubPath = ResolveRootStubExePath(exePath);
+        var commonDesktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+        var userDesktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+
+        var hasCommonShortcut = HasValidShortcutInDirectory(commonDesktop, exePath, rootStubPath);
+
+        // Se já existe atalho público (visível para todos os utilizadores da máquina),
+        // qualquer atalho na Área de Trabalho do utilizador é redundante e faz o Windows exibir 2 ícones.
+        if (hasCommonShortcut)
+        {
+            if (RemoveUserDesktopShortcuts(userDesktop))
+            {
+                UpdateActivityLog.Info("App", "Atalho duplicado no Desktop do utilizador removido (já existe atalho público).");
+            }
+            return;
+        }
+
+        // Se já existe atalho válido no Desktop do utilizador, não precisa criar outro
+        if (HasValidShortcutInDirectory(userDesktop, exePath, rootStubPath))
             return;
 
-        // 1. Tenta criar na Área de Trabalho pública (visível para todos os utilizadores da máquina)
+        // Nenhum atalho existe: cria na Área de Trabalho do utilizador
+        var targetExe = rootStubPath ?? exePath;
         try
         {
-            var commonDesktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
-            if (TryCreateShortcut(commonDesktop, exePath))
-            {
-                UpdateActivityLog.Info("App", $"Atalho criado na Área de Trabalho pública ({commonDesktop}).");
-                return;
-            }
-        }
-        catch
-        {
-            // Sem permissão na pasta pública (executado por utilizador padrão); fallback para utilizador.
-        }
-
-        // 2. Fallback: cria na Área de Trabalho do utilizador atual
-        try
-        {
-            var userDesktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            if (TryCreateShortcut(userDesktop, exePath))
+            if (TryCreateShortcut(userDesktop, targetExe))
             {
                 UpdateActivityLog.Info("App", $"Atalho criado na Área de Trabalho do utilizador ({userDesktop}).");
             }
@@ -74,24 +80,83 @@ internal static class WindowsDesktopShortcutRegistration
 
     public static bool HasDesktopShortcut(string exePath)
     {
+        var rootStubPath = ResolveRootStubExePath(exePath);
         var commonDesktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
-        if (HasValidShortcutInDirectory(commonDesktop, exePath))
+        if (HasValidShortcutInDirectory(commonDesktop, exePath, rootStubPath))
             return true;
 
         var userDesktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        if (HasValidShortcutInDirectory(userDesktop, exePath))
+        if (HasValidShortcutInDirectory(userDesktop, exePath, rootStubPath))
             return true;
 
         return false;
     }
 
-    static bool HasValidShortcutInDirectory(string? directory, string exePath)
+    /// <summary>
+    /// Remove atalhos do SistecHub na Área de Trabalho do utilizador atual.
+    /// Útil durante desinstalação ou para remover cópias duplicadas quando o atalho público existe.
+    /// </summary>
+    public static bool RemoveUserDesktopShortcuts(string? userDesktop = null)
+    {
+        userDesktop ??= Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        if (string.IsNullOrWhiteSpace(userDesktop) || !Directory.Exists(userDesktop))
+            return false;
+
+        var removedAny = false;
+        var defaultLink = Path.Combine(userDesktop, $"{AppReleaseConfig.PackTitle}.lnk");
+
+        if (File.Exists(defaultLink))
+        {
+            try
+            {
+                File.Delete(defaultLink);
+                removedAny = true;
+            }
+            catch
+            {
+                // Melhor esforço
+            }
+        }
+
+        try
+        {
+            foreach (var linkPath in Directory.EnumerateFiles(userDesktop, "*.lnk"))
+            {
+                if (string.Equals(linkPath, defaultLink, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                try
+                {
+                    using var link = new ShellLink(linkPath);
+                    var target = link.Target;
+                    if (!string.IsNullOrWhiteSpace(target) &&
+                        string.Equals(Path.GetFileName(target), AppReleaseConfig.MainExeName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Delete(linkPath);
+                        removedAny = true;
+                    }
+                }
+                catch
+                {
+                    // Ignora atalhos de terceiros ou com falha de leitura
+                }
+            }
+        }
+        catch
+        {
+            // Ignora falhas de listagem
+        }
+
+        return removedAny;
+    }
+
+    static bool HasValidShortcutInDirectory(string? directory, string exePath, string? rootStubPath)
     {
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
             return false;
 
         var defaultLink = Path.Combine(directory, $"{AppReleaseConfig.PackTitle}.lnk");
-        if (File.Exists(defaultLink) && CheckAndUpdateShortcut(defaultLink, exePath))
+        if (File.Exists(defaultLink) && CheckAndUpdateShortcut(defaultLink, exePath, rootStubPath))
             return true;
 
         try
@@ -101,7 +166,7 @@ internal static class WindowsDesktopShortcutRegistration
                 if (string.Equals(linkPath, defaultLink, StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                if (CheckAndUpdateShortcut(linkPath, exePath))
+                if (CheckAndUpdateShortcut(linkPath, exePath, rootStubPath))
                     return true;
             }
         }
@@ -113,26 +178,38 @@ internal static class WindowsDesktopShortcutRegistration
         return false;
     }
 
-    static bool CheckAndUpdateShortcut(string linkPath, string exePath)
+    static bool CheckAndUpdateShortcut(string linkPath, string exePath, string? rootStubPath)
     {
         try
         {
             using var link = new ShellLink(linkPath);
             var target = link.Target;
             if (string.IsNullOrWhiteSpace(target))
-                return false;
+            {
+                var fileName = Path.GetFileNameWithoutExtension(linkPath);
+                return string.Equals(fileName, AppReleaseConfig.PackTitle, StringComparison.OrdinalIgnoreCase);
+            }
 
-            if (string.Equals(target, exePath, StringComparison.OrdinalIgnoreCase))
+            // Alvo exato atual ou stub raiz existente é 100% válido
+            if (string.Equals(target, exePath, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(rootStubPath) && string.Equals(target, rootStubPath, StringComparison.OrdinalIgnoreCase)))
+            {
                 return true;
+            }
 
-            // Se o atalho aponta para SistecHub.exe numa localização anterior (ex: pasta de versão pré-update),
-            // atualiza o alvo para o executável atual mantendo o atalho válido.
+            // Se o atalho aponta para SistecHub.exe
             if (string.Equals(Path.GetFileName(target), AppReleaseConfig.MainExeName, StringComparison.OrdinalIgnoreCase))
             {
+                // Se o arquivo apontado ainda existe (ex: stub raiz ou versão instalada), é válido
+                if (File.Exists(target))
+                    return true;
+
+                // Se o destino não existe (ex: pasta de versão pré-update removida), atualiza o alvo
                 try
                 {
-                    link.Target = exePath;
-                    link.WorkingDirectory = Path.GetDirectoryName(exePath)!;
+                    var newTarget = rootStubPath ?? exePath;
+                    link.Target = newTarget;
+                    link.WorkingDirectory = Path.GetDirectoryName(newTarget)!;
                     link.Save(linkPath);
                 }
                 catch
@@ -152,16 +229,16 @@ internal static class WindowsDesktopShortcutRegistration
         }
     }
 
-    static bool TryCreateShortcut(string? directory, string exePath)
+    static bool TryCreateShortcut(string? directory, string targetExe)
     {
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
             return false;
 
         var linkPath = Path.Combine(directory, $"{AppReleaseConfig.PackTitle}.lnk");
         using var link = new ShellLink();
-        link.Target = exePath;
+        link.Target = targetExe;
         link.Arguments = "";
-        link.WorkingDirectory = Path.GetDirectoryName(exePath)!;
+        link.WorkingDirectory = Path.GetDirectoryName(targetExe)!;
         link.Description = AppReleaseConfig.PackTitle;
         link.Save(linkPath);
         return true;
@@ -182,5 +259,37 @@ internal static class WindowsDesktopShortcutRegistration
 
         var candidate = Path.Combine(dir, AppReleaseConfig.MainExeName);
         return File.Exists(candidate) ? candidate : null;
+    }
+
+    static string? ResolveRootStubExePath(string exePath)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(exePath);
+            if (dir is null)
+                return null;
+
+            // Se exePath está em "current", o stub fica no diretório pai
+            if (string.Equals(Path.GetFileName(dir), "current", StringComparison.OrdinalIgnoreCase))
+            {
+                var parentDir = Path.GetDirectoryName(dir);
+                if (parentDir is not null)
+                {
+                    var stub = Path.Combine(parentDir, AppReleaseConfig.MainExeName);
+                    if (File.Exists(stub))
+                        return stub;
+                }
+            }
+
+            // Se já está no diretório raiz
+            if (File.Exists(exePath))
+                return exePath;
+        }
+        catch
+        {
+            // Ignora
+        }
+
+        return null;
     }
 }

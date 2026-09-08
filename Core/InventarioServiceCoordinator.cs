@@ -13,6 +13,8 @@ public static class InventarioServiceCoordinator
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    public static string DataDirectory => SharedMachineStorage.RootPath;
+
     public static string UploadRequestFilePath =>
         Path.Combine(SharedMachineStorage.RootPath, "inventario-upload.request");
 
@@ -75,17 +77,28 @@ public static class InventarioServiceCoordinator
 
     public static InventarioUiSnapshot? TryReadUiSnapshot()
     {
-        try
+        for (var i = 0; i < 3; i++)
         {
-            if (!File.Exists(UiSnapshotFilePath))
+            try
+            {
+                if (!File.Exists(UiSnapshotFilePath))
+                    return null;
+
+                using var fs = new FileStream(UiSnapshotFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var sr = new StreamReader(fs);
+                var json = sr.ReadToEnd();
+                return JsonSerializer.Deserialize<InventarioUiSnapshot>(json, JsonOptions);
+            }
+            catch (IOException)
+            {
+                Thread.Sleep(50);
+            }
+            catch
+            {
                 return null;
-            var json = File.ReadAllText(UiSnapshotFilePath);
-            return JsonSerializer.Deserialize<InventarioUiSnapshot>(json, JsonOptions);
+            }
         }
-        catch
-        {
-            return null;
-        }
+        return null;
     }
 
     public static void WriteReportJson(string inventoryJson)

@@ -16,18 +16,67 @@ internal static class InventarioPostoReader
         "unknown",
     };
 
+    static (string Tipo, string? Modelo, string? NumeroSerie)? _cachedHardwareProfile;
+    static readonly object HardwareProfileLock = new();
+
     public static PostoTrabalhoInventario ReadPostoTrabalho()
+    {
+        (string Tipo, string? Modelo, string? NumeroSerie) hw;
+        lock (HardwareProfileLock)
+        {
+            if (_cachedHardwareProfile is not null)
+            {
+                hw = _cachedHardwareProfile.Value;
+            }
+            else
+            {
+                hw = ReadHardwareProfile();
+                _cachedHardwareProfile = hw;
+            }
+        }
+
+        string? wmiUser = null;
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "root\\cimv2",
+                "SELECT UserName FROM Win32_ComputerSystem");
+            using var results = searcher.Get();
+            foreach (ManagementObject o in results)
+            {
+                using (o)
+                {
+                    wmiUser = o["UserName"]?.ToString()?.Trim();
+                }
+                break;
+            }
+        }
+        catch
+        {
+            // ignorar
+        }
+
+        var (user, domain, line) = ResolveUtilizadorDominio(wmiUser);
+        return new PostoTrabalhoInventario(hw.Tipo, hw.Modelo, hw.NumeroSerie, user, domain, line);
+    }
+
+    public static void InvalidateCache()
+    {
+        lock (HardwareProfileLock)
+            _cachedHardwareProfile = null;
+    }
+
+    static (string Tipo, string? Modelo, string? NumeroSerie) ReadHardwareProfile()
     {
         ushort? pcType = null;
         string? mfr = null;
         string? model = null;
-        string? wmiUser = null;
 
         try
         {
             using var searcher = new ManagementObjectSearcher(
                 "root\\cimv2",
-                "SELECT Manufacturer, Model, PCSystemType, UserName FROM Win32_ComputerSystem");
+                "SELECT Manufacturer, Model, PCSystemType FROM Win32_ComputerSystem");
             using var results = searcher.Get();
             foreach (ManagementObject o in results)
             {
@@ -35,7 +84,6 @@ internal static class InventarioPostoReader
                 {
                     mfr = o["Manufacturer"]?.ToString()?.Trim();
                     model = o["Model"]?.ToString()?.Trim();
-                    wmiUser = o["UserName"]?.ToString()?.Trim();
                     var raw = o["PCSystemType"];
                     if (raw is ushort u16)
                         pcType = u16;
@@ -61,9 +109,8 @@ internal static class InventarioPostoReader
 
         var modelo = BuildModeloComputador(mfr, model);
         var numeroSerie = ReadBiosSerialNumber();
-        var (user, domain, line) = ResolveUtilizadorDominio(wmiUser);
 
-        return new PostoTrabalhoInventario(tipo, modelo, numeroSerie, user, domain, line);
+        return (tipo, modelo, numeroSerie);
     }
 
     static string? ReadBiosSerialNumber()

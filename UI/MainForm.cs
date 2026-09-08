@@ -316,6 +316,15 @@ internal sealed class MainForm : Form
     {
         ShowPage("home");
         EnsureBackgroundServicesStarted();
+
+        if (_startMinimized)
+        {
+            _ = Task.Delay(2000).ContinueWith(_ =>
+            {
+                if (!IsDisposed)
+                    MemoryOptimizer.TrimWorkingSet();
+            });
+        }
     }
 
     protected override void SetVisibleCore(bool value)
@@ -337,6 +346,16 @@ internal sealed class MainForm : Form
         {
             e.Cancel = true;
             Hide();
+            MemoryOptimizer.TrimWorkingSet();
+        }
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (WindowState == FormWindowState.Minimized)
+        {
+            MemoryOptimizer.TrimWorkingSet();
         }
     }
 

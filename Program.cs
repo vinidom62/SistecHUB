@@ -18,7 +18,6 @@ static class Program
                 {
                     WindowsServiceRegistration.EnsureRegisteredOrFail();
                     WindowsStartupRegistration.EnsureRegistered();
-                    WindowsDesktopShortcutRegistration.EnsureRegistered(force: true);
                 }
                 catch (WindowsServiceSetupFailedException ex)
                 {
@@ -52,7 +51,12 @@ static class Program
                 });
             })
             .OnRestarted(v => UpdateActivityLog.Info("Update", $"Hook OnRestarted — versão {v}."))
-            .OnBeforeUninstallFastCallback(_ => WindowsServiceRegistration.Uninstall())
+            .OnBeforeUninstallFastCallback(_ =>
+            {
+                WindowsServiceRegistration.Uninstall();
+                WindowsStartupRegistration.RemoveStartupShortcut();
+                WindowsDesktopShortcutRegistration.RemoveUserDesktopShortcuts();
+            })
             .Run();
 
         var isAutoStart = args.Any(a => string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase)

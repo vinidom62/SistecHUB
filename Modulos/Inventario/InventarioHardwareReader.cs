@@ -766,58 +766,43 @@ internal static class InventarioHardwareReader
             .ToList();
     }
 
+    static readonly Dictionary<string, int> CachedDriveLetterToDiskIndex = new(StringComparer.OrdinalIgnoreCase);
+    static DateTime _lastDriveMapScanUtc = DateTime.MinValue;
+    static readonly object DriveMapLock = new();
+
     static Dictionary<int, long> CollectUsedBytesByDiskIndex()
     {
         var result = new Dictionary<int, long>();
         try
         {
-            using var drives = new ManagementObjectSearcher(
-                @"root\cimv2",
-                "SELECT DeviceID, Index FROM Win32_DiskDrive");
-            using var driveResults = drives.Get();
-            foreach (ManagementObject drive in driveResults)
+            EnsureDriveLetterToDiskIndexMap();
+
+            foreach (var drive in DriveInfo.GetDrives())
             {
-                using (drive)
+                try
                 {
-                    var diskIndex = TryGetInt(drive, "Index");
-                    var deviceId = TryGetString(drive, "DeviceID");
-                    if (diskIndex is null || string.IsNullOrEmpty(deviceId))
+                    if (!drive.IsReady || drive.DriveType != DriveType.Fixed)
                         continue;
 
-                    long used = 0;
-                    var escaped = EscapeWmi(deviceId);
-                    using var parts = new ManagementObjectSearcher(
-                        @"root\cimv2",
-                        $"ASSOCIATORS OF {{Win32_DiskDrive.DeviceID=\"{escaped}\"}} WHERE AssocClass=Win32_DiskDriveToDiskPartition");
-                    using var partResults = parts.Get();
-                    foreach (ManagementObject part in partResults)
+                    var rootName = drive.Name.TrimEnd('\\').ToUpperInvariant();
+                    int diskIndex;
+                    lock (DriveMapLock)
                     {
-                        using (part)
-                        {
-                            var partId = TryGetString(part, "DeviceID");
-                            if (string.IsNullOrEmpty(partId))
-                                continue;
-
-                            var escapedPart = EscapeWmi(partId);
-                            using var logicals = new ManagementObjectSearcher(
-                                @"root\cimv2",
-                                $"ASSOCIATORS OF {{Win32_DiskPartition.DeviceID=\"{escapedPart}\"}} WHERE AssocClass=Win32_LogicalDiskToPartition");
-                            using var logicalResults = logicals.Get();
-                            foreach (ManagementObject logical in logicalResults)
-                            {
-                                using (logical)
-                                {
-                                    var size = TryGetUInt64(logical, "Size");
-                                    var free = TryGetUInt64(logical, "FreeSpace");
-                                    if (size > 0)
-                                        used += (long)(size - free);
-                                }
-                            }
-                        }
+                        if (!CachedDriveLetterToDiskIndex.TryGetValue(rootName, out diskIndex))
+                            continue;
                     }
 
+                    var total = drive.TotalSize;
+                    var free = drive.TotalFreeSpace;
+                    var used = total - free;
                     if (used > 0)
-                        result[diskIndex.Value] = used;
+                    {
+                        result[diskIndex] = result.GetValueOrDefault(diskIndex) + used;
+                    }
+                }
+                catch
+                {
+                    // Unidade indisponível ou sem permissão
                 }
             }
         }
@@ -827,6 +812,70 @@ internal static class InventarioHardwareReader
         }
 
         return result;
+    }
+
+    static void EnsureDriveLetterToDiskIndexMap()
+    {
+        lock (DriveMapLock)
+        {
+            if (CachedDriveLetterToDiskIndex.Count > 0 && DateTime.UtcNow - _lastDriveMapScanUtc < TimeSpan.FromHours(1))
+                return;
+
+            try
+            {
+                using var drives = new ManagementObjectSearcher(
+                    @"root\cimv2",
+                    "SELECT DeviceID, Index FROM Win32_DiskDrive");
+                using var driveResults = drives.Get();
+                foreach (ManagementObject drive in driveResults)
+                {
+                    using (drive)
+                    {
+                        var diskIndex = TryGetInt(drive, "Index");
+                        var deviceId = TryGetString(drive, "DeviceID");
+                        if (diskIndex is null || string.IsNullOrEmpty(deviceId))
+                            continue;
+
+                        var escaped = EscapeWmi(deviceId);
+                        using var parts = new ManagementObjectSearcher(
+                            @"root\cimv2",
+                            $"ASSOCIATORS OF {{Win32_DiskDrive.DeviceID=\"{escaped}\"}} WHERE AssocClass=Win32_DiskDriveToDiskPartition");
+                        using var partResults = parts.Get();
+                        foreach (ManagementObject part in partResults)
+                        {
+                            using (part)
+                            {
+                                var partId = TryGetString(part, "DeviceID");
+                                if (string.IsNullOrEmpty(partId))
+                                    continue;
+
+                                var escapedPart = EscapeWmi(partId);
+                                using var logicals = new ManagementObjectSearcher(
+                                    @"root\cimv2",
+                                    $"ASSOCIATORS OF {{Win32_DiskPartition.DeviceID=\"{escapedPart}\"}} WHERE AssocClass=Win32_LogicalDiskToPartition");
+                                using var logicalResults = logicals.Get();
+                                foreach (ManagementObject logical in logicalResults)
+                                {
+                                    using (logical)
+                                    {
+                                        var logicalName = TryGetString(logical, "DeviceID")?.ToUpperInvariant();
+                                        if (!string.IsNullOrEmpty(logicalName))
+                                        {
+                                            CachedDriveLetterToDiskIndex[logicalName] = diskIndex.Value;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _lastDriveMapScanUtc = DateTime.UtcNow;
+            }
+            catch
+            {
+                // melhor esforço
+            }
+        }
     }
 
     static string InferTipoFromWmi(string? interfaceType, string? mediaType, string? model)

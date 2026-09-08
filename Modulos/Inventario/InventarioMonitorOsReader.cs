@@ -17,7 +17,28 @@ internal static class InventarioMonitorOsReader
             .ToList();
     }
 
+    static SistemaOperacionalInventario? _cachedSo;
+    static readonly object SoLock = new();
+
     public static SistemaOperacionalInventario ReadSistemaOperacional()
+    {
+        lock (SoLock)
+        {
+            if (_cachedSo is not null)
+                return _cachedSo;
+
+            _cachedSo = ReadSistemaOperacionalCore();
+            return _cachedSo;
+        }
+    }
+
+    public static void InvalidateCache()
+    {
+        lock (SoLock)
+            _cachedSo = null;
+    }
+
+    static SistemaOperacionalInventario ReadSistemaOperacionalCore()
     {
         var nome = "Windows";
         string? displayVer = null;

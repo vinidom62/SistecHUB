@@ -5,15 +5,17 @@ namespace SistecHub.Modulos.Inventario;
 /// <summary>Consome o snapshot de inventário escrito pelo serviço Windows (coleta elevada).</summary>
 internal static class InventarioSnapshotCoordinator
 {
-    public const int RefreshIntervalMs = 2000;
+    public const int RefreshIntervalMs = 30000;
 
     static readonly object LifecycleLock = new();
     static readonly object SnapshotLock = new();
 
     static bool _started;
     static System.Windows.Forms.Timer? _timer;
+    static FileSystemWatcher? _watcher;
     static InventarioHardwareSnapshot? _latest;
     static DateTimeOffset? _lastUiSnapshotStamp;
+    static DateTime _lastFileWriteTimeUtc = DateTime.MinValue;
     static int? _lastShownRegisteredMachineId;
 
     public static event EventHandler? SnapshotUpdated;
@@ -34,6 +36,25 @@ internal static class InventarioSnapshotCoordinator
             _timer = new System.Windows.Forms.Timer { Interval = RefreshIntervalMs };
             _timer.Tick += (_, _) => PollFromService();
             _timer.Start();
+
+            try
+            {
+                var dir = InventarioServiceCoordinator.DataDirectory;
+                if (Directory.Exists(dir))
+                {
+                    _watcher = new FileSystemWatcher(dir, "inventario-ui.json")
+                    {
+                        NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+                        EnableRaisingEvents = true,
+                    };
+                    _watcher.Changed += (_, _) => PollFromService();
+                    _watcher.Created += (_, _) => PollFromService();
+                }
+            }
+            catch
+            {
+                // Fallback seguro permanece no timer.
+            }
         }
 
         InventarioServiceCoordinator.RequestRefresh();
@@ -52,6 +73,12 @@ internal static class InventarioSnapshotCoordinator
                 _timer.Stop();
                 _timer.Dispose();
                 _timer = null;
+            }
+            if (_watcher is not null)
+            {
+                _watcher.EnableRaisingEvents = false;
+                _watcher.Dispose();
+                _watcher = null;
             }
         }
     }
@@ -93,6 +120,19 @@ internal static class InventarioSnapshotCoordinator
 
     public static void RequestRefreshNow()
     {
+        InventarioMonitorOsReader.InvalidateCache();
+        InventarioPostoReader.InvalidateCache();
+
+        lock (SnapshotLock)
+        {
+            if (_latest is { } current)
+            {
+                var freshSo = InventarioMonitorOsReader.ReadSistemaOperacional();
+                _latest = current with { SistemaOperacional = freshSo };
+                SnapshotUpdated?.Invoke(null, EventArgs.Empty);
+            }
+        }
+
         InventarioServiceCoordinator.RequestRefresh();
         PollFromService();
     }
@@ -101,11 +141,21 @@ internal static class InventarioSnapshotCoordinator
     {
         try
         {
+            var filePath = InventarioServiceCoordinator.UiSnapshotFilePath;
+            if (!File.Exists(filePath))
+                return false;
+
+            var writeTime = File.GetLastWriteTimeUtc(filePath);
+            if (writeTime == _lastFileWriteTimeUtc && _latest is not null)
+                return false;
+
             var ui = InventarioServiceCoordinator.TryReadUiSnapshot();
             if (ui is null)
                 return false;
 
-            if (_lastUiSnapshotStamp == ui.CollectedAt)
+            _lastFileWriteTimeUtc = writeTime;
+
+            if (_lastUiSnapshotStamp == ui.CollectedAt && _latest is not null)
                 return false;
 
             lock (SnapshotLock)
@@ -123,8 +173,25 @@ internal static class InventarioSnapshotCoordinator
         }
     }
 
-    static InventarioHardwareSnapshot ToDisplaySnapshot(InventarioUiSnapshot ui) =>
-        new(
+    static InventarioHardwareSnapshot ToDisplaySnapshot(InventarioUiSnapshot ui)
+    {
+        var hasValidOs = !string.IsNullOrWhiteSpace(ui.OsNome)
+            && ui.OsNome != "—"
+            && !string.IsNullOrWhiteSpace(ui.OsStatusAtivacao)
+            && ui.OsStatusAtivacao != "Desconhecido";
+
+        var so = hasValidOs
+            ? new SistemaOperacionalInventario(
+                ui.OsNome,
+                ui.OsArquitetura,
+                ui.OsVersao,
+                null,
+                ui.OsStatusAtivacao,
+                ui.OsChaveAtivacao,
+                ui.OsCanalLicenca)
+            : InventarioMonitorOsReader.ReadSistemaOperacional();
+
+        return new(
             ui.Cpu,
             ui.Ram,
             ui.Gpu,
@@ -146,14 +213,8 @@ internal static class InventarioSnapshotCoordinator
                 d.ArmazenamentoTotalGb,
                 d.ArmazenamentoUsadoGb)).ToList(),
             Array.Empty<MonitorInventario>(),
-            new SistemaOperacionalInventario(
-                string.IsNullOrWhiteSpace(ui.OsNome) ? "—" : ui.OsNome,
-                string.IsNullOrWhiteSpace(ui.OsArquitetura) ? "—" : ui.OsArquitetura,
-                string.IsNullOrWhiteSpace(ui.OsVersao) ? "—" : ui.OsVersao,
-                null,
-                string.IsNullOrWhiteSpace(ui.OsStatusAtivacao) ? "Desconhecido" : ui.OsStatusAtivacao,
-                ui.OsChaveAtivacao,
-                ui.OsCanalLicenca),
+            so,
             new AcessoRemotoInventario(null),
             new PostoTrabalhoInventario("—", null, null, "—", null, "—"));
+    }
 }

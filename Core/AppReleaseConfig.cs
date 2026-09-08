@@ -15,6 +15,6 @@ public static class AppReleaseConfig
 
     public const string MainExeName = "SistecHub.exe";
 
-    /// <summary>Atalhos do instalador; <c>Startup</c> inicia o app com o Windows.</summary>
-    public const string PackShortcuts = "Desktop,StartMenuRoot,Startup";
+    /// <summary>Atalhos criados pelo instalador Velopack (Desktop público e Menu Iniciar).</summary>
+    public const string PackShortcuts = "Desktop,StartMenuRoot";
 }
