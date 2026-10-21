@@ -52,9 +52,10 @@ public sealed class UpdateCheckWorker
             {
                 try
                 {
-                    // Pré-releases só no botão Beta — automático/estável nunca incluem beta.
+                    var isExplicitInstall = installRequested || shouldApplyPending;
+
                     await RunCycleAsync(
-                            userInstallFlow: installRequested || shouldApplyPending || betaCheckRequested || checkRequested,
+                            userInstallFlow: isExplicitInstall,
                             includePrerelease: betaCheckRequested,
                             stoppingToken)
                         .ConfigureAwait(false);
@@ -136,7 +137,7 @@ public sealed class UpdateCheckWorker
         if (VelopackUpdateEngine.PendingRestart is { } pending)
         {
             UpdateActivityLog.Info("Update", $"Actualização já transferida (pendente): {pending.Version}");
-            TryApplyAsync(pending, userInstallFlow, cancellationToken);
+            await TryApplyAsync(pending, userInstallFlow, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -205,12 +206,27 @@ public sealed class UpdateCheckWorker
         }
 
         UpdateActivityLog.Info("Update", $"Transferência concluída — versão {newVersion}.");
-        TryApplyAsync(update.TargetFullRelease, userInstallFlow, cancellationToken);
+        await TryApplyAsync(update.TargetFullRelease, userInstallFlow, cancellationToken).ConfigureAwait(false);
     }
 
-    void TryApplyAsync(VelopackAsset asset, bool userInstallFlow, CancellationToken cancellationToken)
+    async Task TryApplyAsync(VelopackAsset asset, bool userInstallFlow, CancellationToken cancellationToken)
     {
         var version = asset.Version.ToString();
+
+        // Se o utilizador solicitou a instalação (ou fechou após o aviso de contagem regressiva),
+        // aguarda o encerramento gracioso do SistecHub.
+        if (userInstallFlow)
+        {
+            UpdateActivityLog.Info("Update", $"Instalação da versão {version} iniciada. A aguardar encerramento do SistecHub...");
+            var exitedCleanly = await SistecHubAppProcess.WaitForAllExitAsync(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
+
+            if (!exitedCleanly)
+            {
+                UpdateActivityLog.Warn("Update", "Existem processos SistecHub.exe ainda em execução após tolerância de fecho. A terminar instâncias para proceder à actualização.");
+                SistecHubAppProcess.TerminateAll();
+                await SistecHubAppProcess.WaitForAllExitAsync(TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         if (SistecHubAppProcess.IsRunning())
         {

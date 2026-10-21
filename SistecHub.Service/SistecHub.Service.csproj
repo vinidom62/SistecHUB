@@ -42,6 +42,7 @@
     <Compile Include="..\Core\VelopackInstallLocator.cs" Link="Shared\VelopackInstallLocator.cs" />
     <Compile Include="..\Core\InteractiveUserAppLauncher.cs" Link="Shared\InteractiveUserAppLauncher.cs" />
     <Compile Include="..\Core\PostUpdateAppReopen.cs" Link="Shared\PostUpdateAppReopen.cs" />
+    <Compile Include="..\Core\WindowsStartupRegistration.cs" Link="Shared\WindowsStartupRegistration.cs" />
 
     <Compile Include="..\Modulos\GLPI\GlpiApiClient.cs" Link="Shared\GlpiApiClient.cs" />
     <Compile Include="..\Modulos\GLPI\GlpiTicketCounts.cs" Link="Shared\GlpiTicketCounts.cs" />

@@ -79,40 +79,22 @@ static class Program
 
 
         startupLogger.LogInformation(
-
             "SistecHub Service a arrancar. Log: {LogFilePath} | Versão: {Version} | Exe: {ExePath}",
-
             ServiceLogWriter.LogFilePath,
-
             typeof(Program).Assembly.GetName().Version?.ToString() ?? "?",
-
             Environment.ProcessPath ?? "(desconhecido)");
 
-        CleanupLegacyCommonStartup(startupLogger);
-
-        host.Run();
-
-    }
-
-    static void CleanupLegacyCommonStartup(ILogger? logger)
-    {
         try
         {
-            var commonStartup = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup);
-            if (string.IsNullOrWhiteSpace(commonStartup) || !Directory.Exists(commonStartup))
-                return;
-
-            var legacyLink = Path.Combine(commonStartup, $"{AppReleaseConfig.PackTitle}.lnk");
-            if (File.Exists(legacyLink))
-            {
-                File.Delete(legacyLink);
-                logger?.LogInformation("Atalho legado em CommonStartup removido: {Path}", legacyLink);
-            }
+            WindowsStartupRegistration.EnsureRegistered();
+            startupLogger.LogInformation("Atalho de arranque para todos os utilizadores (CommonStartup) verificado.");
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "Falha ao remover atalho legado em CommonStartup.");
+            startupLogger.LogWarning(ex, "Falha ao verificar atalho de arranque em CommonStartup.");
         }
+
+        host.Run();
     }
 }
 

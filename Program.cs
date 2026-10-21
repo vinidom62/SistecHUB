@@ -42,6 +42,7 @@ static class Program
                     $"Hook OnAfterUpdate — versão nova {v}. A reiniciar serviço; reabertura da UI fica a cargo do serviço.");
                 WindowsServiceRegistration.TryEnsureServiceRunningAfterUpdate();
                 WindowsDesktopShortcutRegistration.EnsureRegistered(force: true);
+                WindowsStartupRegistration.EnsureRegistered();
                 UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
                 {
                     Phase = UpdateServicePhase.Completed,
