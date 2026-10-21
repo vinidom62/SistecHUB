@@ -2,8 +2,8 @@ using System.Management;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using DiskInfoToolkit;
+using DiskInfoToolkit.Devices;
 using LibreHardwareMonitor.Hardware;
-using LibreHardwareMonitor.Hardware.Storage;
 using SistecHub.Core;
 
 namespace SistecHub.Modulos.Inventario;
@@ -119,8 +119,7 @@ internal static class InventarioHardwareReader
     /// <summary>Uma sessão <see cref="Computer"/> aberta: CPU, GPU, memória e placa-mãe.</summary>
     public static InventarioHardwareSnapshot ReadInventory()
     {
-        // Storage (DiskInfoToolkit) é activado à parte: ReloadStorages() pode lançar e
-        // derrubar todo o Computer.Open() (ex.: certos SSDs) — ver FanControl #3693 / LHM issues.
+        // Storage é coletado de forma autônoma via DiskInfoToolkit 2.2.1 + WMI (com exclusão de USB/removíveis)
         var computer = CreateComputer(gpu: true, storage: false);
 
         if (!TryOpenComputer(computer, "Computer.Open (cpu/gpu/mem/mb)"))
@@ -134,8 +133,6 @@ internal static class InventarioHardwareReader
 
         try
         {
-            TryEnableStorage(computer);
-
             foreach (var hw in computer.Hardware)
                 UpdateRecursive(hw);
 
@@ -246,21 +243,6 @@ internal static class InventarioHardwareReader
         {
             SistecHub.Core.ServiceLogWriter.LogException("Inventario", ex, $"LHM {context} falhou.");
             return false;
-        }
-    }
-
-    static void TryEnableStorage(Computer computer)
-    {
-        try
-        {
-            computer.IsStorageEnabled = true;
-        }
-        catch (Exception ex)
-        {
-            SistecHub.Core.ServiceLogWriter.LogException(
-                "Inventario",
-                ex,
-                "LHM StorageGroup falhou — discos via WMI apenas.");
         }
     }
 
@@ -387,89 +369,113 @@ internal static class InventarioHardwareReader
         return list;
     }
 
-    static IReadOnlyList<DiscoRigidoInventario> BuildDiscosRigidos(IReadOnlyList<IHardware> flat)
+    sealed class ToolkitDiskInfo
     {
-        var lhmDisks = new List<(IHardware Hardware, string Nome, float? LifePct, string Saude, float? TotalGb, float? UsedGb, string? Serial, string? Bus)>();
-        foreach (var h in flat)
+        public DiskInfoToolkit.Devices.StorageDevice Device { get; init; } = null!;
+        public string Nome { get; init; } = "";
+        public float? LifePct { get; init; }
+        public string Saude { get; init; } = "desconhecida";
+        public float? TotalGb { get; init; }
+        public string? Serial { get; init; }
+        public string? Bus { get; init; }
+        public int? DeviceIndex { get; init; }
+    }
+
+    /// <summary>
+    /// Coleta discos físicos fixos via DiskInfoToolkit 2.2.1 de forma segura,
+    /// desativando qualquer coleta de discos removíveis, USB ou leitores de cartão de memória.
+    /// </summary>
+    static List<ToolkitDiskInfo> CollectToolkitDisks()
+    {
+        var list = new List<ToolkitDiskInfo>();
+        try
         {
-            if (h.HardwareType != HardwareType.Storage)
-                continue;
-            var nome = h.Name.Trim();
-            if (nome.Length == 0)
-                continue;
+            // Desativa a enumeração e monitoramento de dispositivos USB na biblioteca nativa
+            DiskInfoToolkit.Storage.ExcludeUsbDevices = true;
+            var devices = DiskInfoToolkit.Storage.GetDisks();
+            DiskInfoToolkit.Storage.StopMonitoring();
 
-            float? totalGb = null;
-            float? usedPct = null;
-            float? freeGb = null;
-
-            foreach (var s in AllSensors(h))
+            foreach (var d in devices)
             {
-                if (s.Value is null)
+                // Filtro explícito contra mídias removíveis, cartões de memória (SD/MMC) e conexões USB
+                if (d.IsRemovable
+                    || d.IsUsbConnected
+                    || d.BusType == StorageBusType.Usb
+                    || d.BusType == StorageBusType.Sd
+                    || d.BusType == StorageBusType.Mmc
+                    || d.BusType == StorageBusType.Virtual
+                    || d.BusType == StorageBusType.FileBackedVirtual)
+                {
                     continue;
-
-                var name = s.Name ?? "";
-                if (s.SensorType == SensorType.Data
-                    && name.Equals("Total Space", StringComparison.OrdinalIgnoreCase))
-                    totalGb = s.Value.Value;
-                else if (s.SensorType == SensorType.Load
-                         && name.Equals("Used Space", StringComparison.OrdinalIgnoreCase))
-                    usedPct = s.Value.Value;
-                else if (s.SensorType == SensorType.Data
-                         && name.Equals("Free Space", StringComparison.OrdinalIgnoreCase))
-                    freeGb = s.Value.Value;
-            }
-
-            float? usedGb = null;
-            if (totalGb is not null && usedPct is not null)
-                usedGb = (float)Math.Round(totalGb.Value * (usedPct.Value / 100.0), 2);
-            else if (totalGb is not null && freeGb is not null)
-                usedGb = (float)Math.Round(Math.Max(0, totalGb.Value - freeGb.Value), 2);
-
-            var report = TryGetHardwareReport(h);
-            ParseStorageReport(report, out var busLine, out var serialFromReport);
-            if (h is StorageDevice storageDevice)
-            {
-                try
-                {
-                    var toolkitBus = storageDevice.Storage.BusType.ToString();
-                    if (!string.IsNullOrWhiteSpace(toolkitBus))
-                        busLine ??= toolkitBus;
                 }
-                catch
+
+                var model = CleanDiskModel(d.DisplayName);
+                var serial = NormalizeDiskSerial(d.SerialNumber);
+                var sizeBytes = d.DiskSizeBytes;
+                if (sizeBytes is null || sizeBytes.Value == 0)
                 {
-                    // manter bus do relatório
+                    // Dispositivo sem mídia inserida ou tamanho zerado (ex.: slots de leitor de cartão vazios)
+                    continue;
                 }
+
+                float? lifePct = d.Health is int h ? ClampLifePercent(h) : null;
+                var saude = MapDiskStatus(d.HealthStatus?.ToString());
+                if (saude == "desconhecida" && d.SmartAttributes is { Count: > 0 } attrs)
+                {
+                    saude = MapHddStatusFromToolkitAttributes(attrs);
+                }
+
+                float? totalGb = sizeBytes > 0
+                    ? (float)Math.Round((double)sizeBytes.Value / (1024d * 1024d * 1024d), 2)
+                    : null;
+
+                int? devIndex = d.StorageDeviceNumber is uint sdn ? (int)sdn : null;
+
+                list.Add(new ToolkitDiskInfo
+                {
+                    Device = d,
+                    Nome = model ?? "Disco",
+                    LifePct = lifePct,
+                    Saude = saude,
+                    TotalGb = totalGb,
+                    Serial = serial,
+                    Bus = d.BusType.ToString(),
+                    DeviceIndex = devIndex,
+                });
             }
-
-            var serial = TryGetStorageSerial(h) ?? serialFromReport;
-            if (serial is not null && IsPlaceholderSerial(serial))
-                serial = null;
-
-            var (lifePct, saude) = ReadToolkitDiskHealth(h);
-
-            lhmDisks.Add((h, nome, lifePct, saude, totalGb, usedGb, serial, busLine));
+        }
+        catch (Exception ex)
+        {
+            ServiceLogWriter.LogException("Inventario", ex, "DiskInfoToolkit falhou ao recolher discos.");
         }
 
+        return list;
+    }
+
+    static IReadOnlyList<DiscoRigidoInventario> BuildDiscosRigidos(IReadOnlyList<IHardware>? flat = null)
+    {
+        var toolkitDisks = CollectToolkitDisks();
         var wmiDisks = CollectWmiPhysicalDisks();
         var usedByIndex = CollectUsedBytesByDiskIndex();
         var result = new List<DiscoRigidoInventario>();
-        var matchedLhm = new HashSet<int>();
+        var matchedToolkit = new HashSet<int>();
 
         foreach (var wmi in wmiDisks)
         {
             var bestIdx = -1;
             var bestScore = 0;
-            for (var i = 0; i < lhmDisks.Count; i++)
+            for (var i = 0; i < toolkitDisks.Count; i++)
             {
-                if (matchedLhm.Contains(i))
+                if (matchedToolkit.Contains(i))
                     continue;
-                var score = NameMatchScore(wmi.Model, lhmDisks[i].Nome);
+                var tk = toolkitDisks[i];
+                var score = NameMatchScore(wmi.Model, tk.Nome);
                 if (!string.IsNullOrEmpty(wmi.Serial)
-                    && string.Equals(wmi.Serial, lhmDisks[i].Serial, StringComparison.OrdinalIgnoreCase))
+                    && string.Equals(wmi.Serial, tk.Serial, StringComparison.OrdinalIgnoreCase))
                     score += 100;
                 if (wmi.Index is int wmiIdx
-                    && TryGetStorageIndex(lhmDisks[i].Hardware) is int lhmIdx
-                    && wmiIdx == lhmIdx)
+                    && tk.DeviceIndex is int tkIdx
+                    && wmiIdx == tkIdx)
                     score += 80;
                 if (score > bestScore)
                 {
@@ -489,17 +495,16 @@ internal static class InventarioHardwareReader
 
             if (bestIdx >= 0 && bestScore > 0)
             {
-                matchedLhm.Add(bestIdx);
-                var lhm = lhmDisks[bestIdx];
-                life = lhm.LifePct;
-                saude = lhm.Saude;
+                matchedToolkit.Add(bestIdx);
+                var tk = toolkitDisks[bestIdx];
+                life = tk.LifePct;
+                saude = tk.Saude;
                 if (totalGb is null)
-                    totalGb = lhm.TotalGb is not null ? (float)Math.Round(lhm.TotalGb.Value, 2) : null;
-                usedGb = lhm.UsedGb;
+                    totalGb = tk.TotalGb;
                 if (string.IsNullOrEmpty(serial))
-                    serial = lhm.Serial;
+                    serial = tk.Serial;
                 if (tipo is "Desconhecido" or "")
-                    tipo = InferTipoDisco(lhm.Hardware, lhm.Bus, life is not null);
+                    tipo = InferTipoDisco(tk.Device, tk.Nome, tk.Bus, life is not null);
             }
 
             if (usedGb is null && wmi.Index is int idx && usedByIndex.TryGetValue(idx, out var usedBytes))
@@ -518,99 +523,35 @@ internal static class InventarioHardwareReader
                 usedGb));
         }
 
-        for (var i = 0; i < lhmDisks.Count; i++)
+        for (var i = 0; i < toolkitDisks.Count; i++)
         {
-            if (matchedLhm.Contains(i))
+            if (matchedToolkit.Contains(i))
                 continue;
-            var lhm = lhmDisks[i];
+            var tk = toolkitDisks[i];
+            float? usedGb = null;
+            if (tk.DeviceIndex is int idx && usedByIndex.TryGetValue(idx, out var usedBytes))
+                usedGb = (float)Math.Round(usedBytes / (1024d * 1024d * 1024d), 2);
+
             result.Add(new DiscoRigidoInventario(
-                lhm.Nome,
-                NormalizeTipoDisco(InferTipoDisco(lhm.Hardware, lhm.Bus, lhm.LifePct is not null)),
-                lhm.Serial,
-                lhm.Saude,
-                lhm.LifePct,
-                lhm.TotalGb is not null ? (float)Math.Round(lhm.TotalGb.Value, 2) : null,
-                lhm.UsedGb));
+                tk.Nome,
+                NormalizeTipoDisco(InferTipoDisco(tk.Device, tk.Nome, tk.Bus, tk.LifePct is not null)),
+                tk.Serial,
+                tk.Saude,
+                tk.LifePct,
+                tk.TotalGb,
+                usedGb));
         }
 
         return result;
     }
 
-    static IEnumerable<ISensor> AllSensors(IHardware hardware)
-    {
-        foreach (var s in hardware.Sensors)
-            yield return s;
-        foreach (var sub in hardware.SubHardware)
-        {
-            foreach (var s in AllSensors(sub))
-                yield return s;
-        }
-    }
-
     /// <summary>
-    /// Saúde e vida restantes da DiskInfoToolkit (<c>Smart.DiskStatus</c> / <c>Smart.Life</c>).
-    /// <c>Life</c> só em SSD/NVMe. HD usa os mesmos atributos da toolkit (05 / C5 / C6):
-    /// na 1.1.2 o <c>DiskStatus</c> do HD fica sempre Unknown por um <c>&amp;&amp;</c> onde deveria ser <c>||</c>.
+    /// Regra CrystalDiskInfo para HD: IDs 0x05, 0xC5 e 0xC6.
     /// </summary>
-    static (float? LifePct, string Saude) ReadToolkitDiskHealth(IHardware hardware)
+    static string MapHddStatusFromToolkitAttributes(IReadOnlyList<DiskInfoToolkit.Smart.SmartAttributeEntry>? attrs)
     {
         const string unknown = "desconhecida";
-        try
-        {
-            if (hardware is not StorageDevice device)
-                return (null, unknown);
-
-            var storage = device.Storage;
-            var smart = storage.Smart;
-            var saude = MapDiskStatus(smart?.DiskStatus.ToString());
-
-            var isSolidState = false;
-            try
-            {
-                isSolidState = storage.IsNVMe || storage.IsSSD;
-            }
-            catch
-            {
-                // tipo desconhecido — não inventar %
-            }
-
-            if (saude == unknown && !isSolidState)
-            {
-                try
-                {
-                    storage.Update();
-                    smart = storage.Smart;
-                    saude = MapDiskStatus(smart?.DiskStatus.ToString());
-                }
-                catch
-                {
-                    // atributos da primeira passagem do LHM ainda servem
-                }
-
-                if (saude == unknown)
-                    saude = MapHddStatusFromToolkitAttributes(smart);
-            }
-
-            float? life = null;
-            if (isSolidState && smart?.Life is { } lifeVal)
-                life = ClampLifePercent(lifeVal);
-
-            return (life, saude);
-        }
-        catch
-        {
-            return (null, unknown);
-        }
-    }
-
-    /// <summary>
-    /// Regra CrystalDiskInfo/DiskInfoToolkit para HD: IDs 0x05, 0xC5 e 0xC6
-    /// (a 1.1.2 compara os três com AND, por isso nunca marca o HD como Good).
-    /// </summary>
-    static string MapHddStatusFromToolkitAttributes(DiskInfoToolkit.SmartInfo? smart)
-    {
-        const string unknown = "desconhecida";
-        if (smart?.SmartAttributes is not { Count: > 0 } attrs)
+        if (attrs is not { Count: > 0 })
             return unknown;
 
         var error = 0;
@@ -619,20 +560,18 @@ internal static class InventarioHardwareReader
 
         foreach (var sa in attrs)
         {
-            var id = sa.Info.ID;
-            var a = sa.Attribute;
+            var id = sa.ID;
 
-            if (IsHddFailureAttributeId(id) && a.Threshold != 0 && a.CurrentValue < a.Threshold)
+            if (IsHddFailureAttributeId(id) && sa.ThresholdValue != 0 && sa.CurrentValue < sa.ThresholdValue)
                 error++;
 
             if (id is not (0x05 or 0xC5 or 0xC6))
                 continue;
 
             sawHealthAttr = true;
-            var raw = a.RawValue;
-            if (raw is { Length: >= 4 } && raw[0] == 0xFF && raw[1] == 0xFF && raw[2] == 0xFF && raw[3] == 0xFF)
-                continue;
-            if (a.Threshold > 0 && a.RawValueUInt >= a.Threshold)
+            if (sa.ThresholdValue > 0 && sa.RawValue >= sa.ThresholdValue)
+                caution++;
+            else if (sa.RawValue > 0)
                 caution++;
         }
 
@@ -659,9 +598,9 @@ internal static class InventarioHardwareReader
     static string MapDiskStatus(string? status) =>
         status?.Trim().ToUpperInvariant() switch
         {
-            "GOOD" => "saudavel",
+            "GOOD" or "HEALTHY" => "saudavel",
             "CAUTION" or "WARNING" => "atencao",
-            "BAD" or "FAIL" => "falha",
+            "BAD" or "FAIL" or "UNHEALTHY" => "falha",
             _ => "desconhecida",
         };
 
@@ -699,15 +638,23 @@ internal static class InventarioHardwareReader
                 {
                     var index = TryGetInt(obj, "Index") ?? -1;
                     var model = CleanDiskModel(TryGetString(obj, "Model"));
+                    var interfaceType = TryGetString(obj, "InterfaceType");
+                    var mediaType = TryGetString(obj, "MediaType");
+                    var sizeBytes = (long)TryGetUInt64(obj, "Size");
+
+                    // Desativar discos removíveis, USB e leitores de cartão de memória
+                    if (IsRemovableOrUsbDisk(interfaceType, mediaType, model, sizeBytes))
+                        continue;
+
                     var row = new WmiDiskRow
                     {
                         Index = index >= 0 ? index : null,
                         Model = model,
                         Serial = NormalizeDiskSerial(TryGetString(obj, "SerialNumber")),
-                        SizeBytes = (long)TryGetUInt64(obj, "Size"),
+                        SizeBytes = sizeBytes,
                         Tipo = InferTipoFromWmi(
-                            TryGetString(obj, "InterfaceType"),
-                            TryGetString(obj, "MediaType"),
+                            interfaceType,
+                            mediaType,
                             model),
                     };
                     byIndex[index >= 0 ? index : byIndex.Count + 1000] = row;
@@ -729,12 +676,22 @@ internal static class InventarioHardwareReader
             {
                 using (obj)
                 {
-                    var friendly = CleanDiskModel(TryGetString(obj, "FriendlyName"));
-                    var mediaType = TryGetInt(obj, "MediaType");
                     var busType = TryGetInt(obj, "BusType");
+                    // BusType: 7 = USB, 12 = SD, 13 = MMC, 14 = Virtual, 15 = FileBackedVirtual
+                    if (busType is 7 or 12 or 13 or 14 or 15)
+                        continue;
+
+                    var size = (long)TryGetUInt64(obj, "Size");
+                    if (size <= 0)
+                        continue;
+
+                    var friendly = CleanDiskModel(TryGetString(obj, "FriendlyName"));
+                    if (IsRemovableOrUsbDisk(null, null, friendly, size))
+                        continue;
+
+                    var mediaType = TryGetInt(obj, "MediaType");
                     var tipo = MapMsftTipo(mediaType, busType, friendly);
                     var serial = NormalizeDiskSerial(TryGetString(obj, "SerialNumber"));
-                    var size = (long)TryGetUInt64(obj, "Size");
 
                     var match = byIndex.Values.FirstOrDefault(d =>
                         NameMatchScore(d.Model, friendly) >= 2
@@ -825,7 +782,7 @@ internal static class InventarioHardwareReader
             {
                 using var drives = new ManagementObjectSearcher(
                     @"root\cimv2",
-                    "SELECT DeviceID, Index FROM Win32_DiskDrive");
+                    "SELECT DeviceID, Index, Model, InterfaceType, MediaType, Size FROM Win32_DiskDrive");
                 using var driveResults = drives.Get();
                 foreach (ManagementObject drive in driveResults)
                 {
@@ -834,6 +791,15 @@ internal static class InventarioHardwareReader
                         var diskIndex = TryGetInt(drive, "Index");
                         var deviceId = TryGetString(drive, "DeviceID");
                         if (diskIndex is null || string.IsNullOrEmpty(deviceId))
+                            continue;
+
+                        var interfaceType = TryGetString(drive, "InterfaceType");
+                        var mediaType = TryGetString(drive, "MediaType");
+                        var model = TryGetString(drive, "Model");
+                        var size = (long)TryGetUInt64(drive, "Size");
+
+                        // Desativar discos removíveis, USB e leitores de cartão de memória
+                        if (IsRemovableOrUsbDisk(interfaceType, mediaType, model, size))
                             continue;
 
                         var escaped = EscapeWmi(deviceId);
@@ -1006,148 +972,38 @@ internal static class InventarioHardwareReader
         }
     }
 
-    static int? TryGetStorageIndex(IHardware hardware)
-    {
-        if (hardware is StorageDevice device)
-            return device.Storage.DriveNumber;
-
-        var id = hardware.Identifier?.ToString();
-        if (string.IsNullOrEmpty(id))
-            return null;
-
-        var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 2 && int.TryParse(parts[^1], out var index))
-            return index;
-
-        return null;
-    }
-
     static string EscapeWmi(string value) =>
         value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
 
-    static string? TryGetHardwareReport(IHardware h)
+    /// <summary>Classifica NVMe / SSD / HD com base no DiskInfoToolkit e no nome do disco.</summary>
+    static string InferTipoDisco(DiskInfoToolkit.Devices.StorageDevice? device, string? fallbackName, string? busReport, bool temSensorVida)
     {
-        try
+        if (device != null)
         {
-            return h.GetReport();
-        }
-        catch
-        {
-            return null;
-        }
-    }
+            if (device.BusType == StorageBusType.Nvme || device.Nvme != null)
+                return "NVMe";
 
-    static void ParseStorageReport(string? report, out string? busType, out string? serial)
-    {
-        busType = null;
-        serial = null;
-        if (string.IsNullOrWhiteSpace(report))
-            return;
-
-        foreach (var raw in report.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = raw.Trim();
-            if (line.StartsWith("Bus type:", StringComparison.OrdinalIgnoreCase))
-            {
-                busType = line["Bus type:".Length..].Trim();
-                continue;
-            }
-
-            if (!line.Contains(':', StringComparison.Ordinal))
-                continue;
-            if (!line.Contains("Serial", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (line.Contains("Revision", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var idx = line.IndexOf(':');
-            if (idx < 0 || idx >= line.Length - 1)
-                continue;
-            var val = line[(idx + 1)..].Trim();
-            if (val.Length > 0)
-                serial = val;
-        }
-    }
-
-    static string? TryGetStorageSerial(IHardware h)
-    {
-        try
-        {
-            if (h is StorageDevice device)
-            {
-                var sn = device.Storage.SerialNumber?.Trim();
-                if (!string.IsNullOrEmpty(sn))
-                    return sn;
-            }
-
-            foreach (var kv in h.Properties)
-            {
-                var k = kv.Key?.ToString() ?? "";
-                if (!k.Contains("Serial", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                var v = kv.Value?.ToString()?.Trim();
-                if (!string.IsNullOrEmpty(v))
-                    return v;
-            }
-        }
-        catch
-        {
-            // ignorar
-        }
-
-        return null;
-    }
-
-    /// <summary>Classifica NVMe / SSD / HD com base no DiskInfoToolkit / relatório LHM e no nome do disco.</summary>
-    static string InferTipoDisco(IHardware h, string? busReport, bool temSensorVida)
-    {
-        if (h is StorageDevice device)
-        {
-            try
-            {
-                if (device.Storage.IsNVMe)
-                    return "NVMe";
-                if (device.Storage.IsSSD)
-                    return "SSD";
-
-                var toolkitBus = device.Storage.BusType.ToString();
-                if (!string.IsNullOrWhiteSpace(toolkitBus))
-                    busReport = string.IsNullOrWhiteSpace(busReport) ? toolkitBus : busReport;
-            }
-            catch
-            {
-                // fallback heurístico abaixo
-            }
-        }
-
-        var bus = (busReport ?? "").Trim();
-        var bn = bus.ToLowerInvariant();
-        var name = h.Name.ToLowerInvariant();
-        var id = h.Identifier.ToString().ToLowerInvariant();
-
-        if (bn.Contains("nvme", StringComparison.Ordinal) || id.Contains("nvme", StringComparison.Ordinal))
-            return "NVMe";
-        if (bn.Contains("usb", StringComparison.Ordinal))
-            return "USB";
-        if (bn.Contains("raid", StringComparison.Ordinal))
-            return "RAID";
-
-        if (name.Contains("nvme", StringComparison.OrdinalIgnoreCase))
-            return "NVMe";
-
-        if (name.Contains("ssd", StringComparison.Ordinal) ||
-            name.Contains("solid state", StringComparison.Ordinal))
-            return "SSD";
-
-        if (bn.Contains("sata", StringComparison.Ordinal) ||
-            bn.Contains("ata", StringComparison.Ordinal) ||
-            bn.Contains("scsi", StringComparison.Ordinal) ||
-            bn.Contains("ahci", StringComparison.Ordinal))
-        {
-            if (temSensorVida || name.Contains("ssd", StringComparison.Ordinal))
+            var dName = (device.DisplayName ?? "").ToLowerInvariant();
+            if (dName.Contains("nvme", StringComparison.OrdinalIgnoreCase))
+                return "NVMe";
+            if (dName.Contains("ssd", StringComparison.OrdinalIgnoreCase) || dName.Contains("solid state", StringComparison.OrdinalIgnoreCase))
                 return "SSD";
-            return "HD";
+
+            if (device.Health is not null)
+                return "SSD";
+
+            if (device.BusType is StorageBusType.Sata or StorageBusType.Ata or StorageBusType.Scsi)
+                return temSensorVida ? "SSD" : "HD";
         }
+
+        var name = (fallbackName ?? "").ToLowerInvariant();
+        var bus = (busReport ?? "").ToLowerInvariant();
+
+        if (bus.Contains("nvme", StringComparison.Ordinal) || name.Contains("nvme", StringComparison.OrdinalIgnoreCase))
+            return "NVMe";
+
+        if (name.Contains("ssd", StringComparison.Ordinal) || name.Contains("solid state", StringComparison.Ordinal))
+            return "SSD";
 
         if (temSensorVida)
             return "SSD";
@@ -1157,7 +1013,51 @@ internal static class InventarioHardwareReader
             name.Contains("rpm", StringComparison.Ordinal))
             return "HD";
 
-        return string.IsNullOrEmpty(bus) ? "Desconhecido" : bus.Trim();
+        if (bus.Contains("sata", StringComparison.Ordinal) ||
+            bus.Contains("ata", StringComparison.Ordinal) ||
+            bus.Contains("scsi", StringComparison.Ordinal) ||
+            bus.Contains("ahci", StringComparison.Ordinal))
+            return "HD";
+
+        return "Desconhecido";
+    }
+
+    /// <summary>
+    /// Identifica e filtra unidades removíveis, barramentos USB e leitores de cartão de memória vazios.
+    /// </summary>
+    static bool IsRemovableOrUsbDisk(string? interfaceType, string? mediaType, string? model, long sizeBytes)
+    {
+        // 1. Barramento USB ou IEEE 1394 (FireWire)
+        if (string.Equals(interfaceType, "USB", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(interfaceType, "1394", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // 2. MediaType indicando mídia externa ou removível
+        if (!string.IsNullOrEmpty(mediaType))
+        {
+            if (mediaType.Contains("Removable", StringComparison.OrdinalIgnoreCase)
+                || mediaType.Contains("External", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // 3. Tamanho zero ou negativo (leitor de cartão sem mídia inserida ou unidade vazia)
+        if (sizeBytes <= 0)
+            return true;
+
+        // 4. Identificação por modelo comum de leitores de cartão / mídias removíveis
+        if (!string.IsNullOrEmpty(model))
+        {
+            if (model.Contains("Card Reader", StringComparison.OrdinalIgnoreCase)
+                || model.Contains("SD/MMC", StringComparison.OrdinalIgnoreCase)
+                || model.Contains("SD Card", StringComparison.OrdinalIgnoreCase)
+                || model.Contains("MicroSD", StringComparison.OrdinalIgnoreCase)
+                || model.Contains("Flash Disk", StringComparison.OrdinalIgnoreCase)
+                || model.Contains("USB Device", StringComparison.OrdinalIgnoreCase)
+                || model.Contains("Mass Storage", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>VRAM dedicada total (GB) a partir de sensores SmallData/Data da GPU (LHM).</summary>
