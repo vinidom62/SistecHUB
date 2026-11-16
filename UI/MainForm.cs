@@ -1,4 +1,7 @@
+using System.Runtime.InteropServices;
+using System.Windows.Forms.Integration;
 using SistecHub.Core;
+using SistecHub.Modulos.AcessoRemoto;
 using SistecHub.Modulos.GLPI;
 using SistecHub.Modulos.GLPI.Chamados;
 using SistecHub.Modulos.Inventario;
@@ -7,14 +10,29 @@ namespace SistecHub.UI;
 
 internal sealed class MainForm : Form
 {
-    const int PageTransitionDurationMs = 280;
+    const int WM_EXITSIZEMOVE = 0x0232;
+    const int WM_HOTKEY = 0x0312;
+    const int HOTKEY_ID_ACESSO_REMOTO = 0x5157;
+    const uint MOD_ALT = 0x0001;
+    const uint MOD_CONTROL = 0x0002;
+    const uint MOD_NOREPEAT = 0x4000;
+    const uint VK_SPACE = 0x20;
 
-    readonly DoubleBufferedPanel _contentHost;
-    readonly System.Windows.Forms.Timer _pageTransitionTimer;
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    readonly Panel _contentHost;
     readonly Panel _sidebar;
-    readonly SidebarFooterEntityBadge _footerEntityBadge;
-    readonly SidebarFooterNavItem _footerSettings;
-    readonly FlowLayoutPanel _footerFlow;
+    readonly SidebarControl _sidebarControl;
     readonly IReadOnlyDictionary<string, IAppModule> _modulesById;
     readonly NotifyIcon _trayIcon;
 
@@ -24,9 +42,13 @@ internal sealed class MainForm : Form
     readonly bool _startMinimized;
     bool _allowShow;
     string _activePageId = "home";
-    UserControl? _transitionOldPage;
-    UserControl? _transitionNewPage;
-    long _transitionStartTick;
+
+    Panel _remoteSessionBanner = null!;
+    Label _remoteBannerText = null!;
+    Button _remoteBannerChatBtn = null!;
+    Button _remoteBannerDisconnectBtn = null!;
+    System.Windows.Forms.Timer _remoteBannerDurationTimer = null!;
+    DateTimeOffset? _remoteBannerStartTime;
 
     public MainForm(bool startMinimized = false)
     {
@@ -39,9 +61,10 @@ internal sealed class MainForm : Form
 
         Text = "SistecHub";
         ClientSize = new Size(1280, 720);
+        MinimumSize = new Size(1020, 620);
         StartPosition = FormStartPosition.CenterScreen;
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
         BackColor = ShellTheme.MainBg;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
@@ -68,144 +91,64 @@ internal sealed class MainForm : Form
 
         Win32Dwm.TryEnableRoundedCorners(this);
 
+        if (System.Windows.Application.Current == null)
+        {
+            new System.Windows.Application
+            {
+                ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown,
+            };
+        }
+
+        _sidebarControl = new SidebarControl();
+        _sidebarControl.SetMenuEntries(BuildMenuEntries());
+        _sidebarControl.PageSelected += pageId =>
+        {
+            if (InvokeRequired)
+                BeginInvoke(() => ShowPage(pageId));
+            else
+                ShowPage(pageId);
+        };
+
+        var sidebarElementHost = new ElementHost
+        {
+            Dock = DockStyle.Fill,
+            BackColor = ShellTheme.SidebarBg,
+            Child = _sidebarControl,
+        };
+
         _sidebar = new Panel
         {
             Dock = DockStyle.Left,
-            Width = 232,
+            Width = 236,
             BackColor = ShellTheme.SidebarBg,
         };
-
-        var sidebarEdge = new Panel
-        {
-            Dock = DockStyle.Right,
-            Width = 1,
-            BackColor = ShellTheme.SidebarDivider,
-        };
-
-        var sidebarHeader = new Label
-        {
-            Text = "SistecHub",
-            Dock = DockStyle.Top,
-            Height = 64,
-            ForeColor = Color.White,
-            Font = new Font("Segoe UI", 12F, FontStyle.Bold, GraphicsUnit.Point),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(20, 0, 0, 0),
-            BackColor = ShellTheme.SidebarHeaderBg,
-        };
-
-        var navCaption = new Label
-        {
-            Text = "NAVEGAÇÃO",
-            Dock = DockStyle.Top,
-            Height = 28,
-            ForeColor = ShellTheme.TextMuted,
-            Font = new Font("Segoe UI", 7.5F, FontStyle.Bold, GraphicsUnit.Point),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(20, 12, 0, 0),
-            BackColor = ShellTheme.SidebarBg,
-        };
-
-        var menuFlow = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true,
-            BackColor = ShellTheme.SidebarBg,
-            Padding = new Padding(12, 8, 12, 16),
-        };
-
-        void SyncMenuButtonWidths()
-        {
-            var w = Math.Max(0, menuFlow.ClientSize.Width - menuFlow.Padding.Horizontal);
-            foreach (Control c in menuFlow.Controls)
-            {
-                c.Width = w;
-                if (c is Button b)
-                    ShellTheme.ApplyRoundedRegion(b, 10);
-            }
-        }
-
-        menuFlow.Resize += (_, _) => SyncMenuButtonWidths();
-
-        foreach (var entry in BuildMenuEntries())
-        {
-            var btn = ShellTheme.CreateSidebarMenuButton(entry.MenuText);
-            btn.Tag = entry.Id;
-            btn.Click += (_, _) => ShowPage(entry.Id);
-            menuFlow.Controls.Add(btn);
-        }
-
-        _footerEntityBadge = new SidebarFooterEntityBadge("\uE77B");
-        _footerSettings = new SidebarFooterNavItem("\uE713", "Configurações");
-
-        _footerFlow = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = false,
-            BackColor = Color.Transparent,
-            Padding = new Padding(8, 10, 8, 12),
-        };
-
-        _footerFlow.Controls.Add(_footerEntityBadge);
-        _footerFlow.Controls.Add(_footerSettings);
-
-        var sidebarFooter = new Panel
-        {
-            Dock = DockStyle.Bottom,
-            Height = 118,
-            BackColor = ShellTheme.SidebarBg,
-            Padding = new Padding(4, 0, 4, 0),
-        };
-
-        void SyncFooterItemWidths()
-        {
-            var w = Math.Max(0, _footerFlow.ClientSize.Width - _footerFlow.Padding.Horizontal);
-            _footerEntityBadge.Width = w;
-            _footerSettings.Width = w;
-        }
-
-        _footerFlow.Resize += (_, _) => SyncFooterItemWidths();
-
-        sidebarFooter.Paint += (_, e) =>
-        {
-            using var pen = new Pen(ShellTheme.SidebarDivider);
-            e.Graphics.DrawLine(pen, 12, 0, Math.Max(12, sidebarFooter.Width - 12), 0);
-        };
-
-        sidebarFooter.Resize += (_, _) => SyncFooterItemWidths();
-        sidebarFooter.Controls.Add(_footerFlow);
-
-        _footerSettings.Click += (_, _) => ShowPage("settings");
+        _sidebar.Controls.Add(sidebarElementHost);
 
         ChamadosDataCache.SnapshotUpdated += OnChamadosSnapshotUpdated;
 
-        _sidebar.Controls.Add(menuFlow);
-        _sidebar.Controls.Add(sidebarFooter);
-        _sidebar.Controls.Add(navCaption);
-        _sidebar.Controls.Add(sidebarHeader);
-        _sidebar.Controls.Add(sidebarEdge);
-
-        _contentHost = new DoubleBufferedPanel
+        _contentHost = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = ShellTheme.MainBg,
         };
 
-        _pageTransitionTimer = new System.Windows.Forms.Timer { Interval = 2 };
-        _pageTransitionTimer.Tick += OnPageTransitionTick;
+        _remoteSessionBanner = CreateRemoteSessionBanner();
+
+        AcessoRemotoAgentService.SessionStarted += OnRemoteSessionStarted;
+        AcessoRemotoAgentService.SessionEnded += OnRemoteSessionEnded;
+        AcessoRemotoAgentService.StateChanged += OnRemoteAgentStateChanged;
 
         FormClosed += (_, _) =>
         {
+            AcessoRemotoAgentService.SessionStarted -= OnRemoteSessionStarted;
+            AcessoRemotoAgentService.SessionEnded -= OnRemoteSessionEnded;
+            AcessoRemotoAgentService.StateChanged -= OnRemoteAgentStateChanged;
+            AcessoRemotoChatForm.CloseIfOpen();
             ChamadosDataCache.SnapshotUpdated -= OnChamadosSnapshotUpdated;
-            _pageTransitionTimer.Dispose();
+            _remoteBannerDurationTimer.Dispose();
             _trayIcon.Dispose();
+            sidebarElementHost.Dispose();
         };
-
-        _contentHost.Resize += OnContentHostResizeDuringTransition;
 
         var mainColumn = new Panel
         {
@@ -213,14 +156,13 @@ internal sealed class MainForm : Form
             BackColor = ShellTheme.MainBg,
         };
         mainColumn.Controls.Add(_contentHost);
+        mainColumn.Controls.Add(_remoteSessionBanner);
 
         Controls.Add(mainColumn);
         Controls.Add(_sidebar);
 
         Shown += (_, _) =>
         {
-            SyncMenuButtonWidths();
-            SyncFooterItemWidths();
             EnsureBackgroundServicesStarted();
         };
         Load += OnMainFormLoad;
@@ -236,6 +178,7 @@ internal sealed class MainForm : Form
         RefreshFooterEntityName();
         _ = PrefetchFooterEntityNameAsync();
         InventarioSnapshotCoordinator.Start();
+        AcessoRemotoAgentService.Start();
         _ = EnsureMachineRegisteredOnStartupAsync();
     }
 
@@ -359,22 +302,101 @@ internal sealed class MainForm : Form
         }
     }
 
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        _sidebar?.PerformLayout();
+        _contentHost?.PerformLayout();
+        _contentHost?.Invalidate(true);
+        RefreshHostedWpfControls(this);
+    }
+
+    static void RefreshHostedWpfControls(Control parent)
+    {
+        foreach (Control c in parent.Controls)
+        {
+            if (c is ElementHost host)
+            {
+                host.Invalidate();
+                host.Update();
+                host.Child?.InvalidateMeasure();
+                host.Child?.InvalidateVisual();
+            }
+            if (c.HasChildren)
+            {
+                RefreshHostedWpfControls(c);
+            }
+        }
+    }
+
     void ShowFromTray()
     {
         _allowShow = true;
         Show();
-        WindowState = FormWindowState.Normal;
+        if (WindowState == FormWindowState.Minimized)
+            WindowState = FormWindowState.Normal;
         Activate();
+        BringToFront();
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (Handle != IntPtr.Zero)
+        {
+            // Registra o atalho global Ctrl + Alt + Espaço para abrir o SistecHub na tela de Acesso Remoto
+            if (!RegisterHotKey(Handle, HOTKEY_ID_ACESSO_REMOTO, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_SPACE))
+            {
+                RegisterHotKey(Handle, HOTKEY_ID_ACESSO_REMOTO, MOD_CONTROL | MOD_ALT, VK_SPACE);
+            }
+        }
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        if (Handle != IntPtr.Zero)
+        {
+            try { UnregisterHotKey(Handle, HOTKEY_ID_ACESSO_REMOTO); } catch { }
+        }
+        base.OnHandleDestroyed(e);
+    }
+
+    void OpenAcessoRemotoFromGlobalHotkey()
+    {
+        ShowFromTray();
+        if (Handle != IntPtr.Zero)
+        {
+            try { SetForegroundWindow(Handle); } catch { }
+        }
+        ShowPage("acesso-remoto");
     }
 
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_ID_ACESSO_REMOTO)
+        {
+            OpenAcessoRemotoFromGlobalHotkey();
+            m.Result = IntPtr.Zero;
+            return;
+        }
+
         if (m.Msg == (int)SingleInstanceApp.InstanceActivateMessage)
         {
             ShowFromTray();
             m.Result = IntPtr.Zero;
             return;
         }
+
+        if (m.Msg == WM_EXITSIZEMOVE)
+        {
+            base.WndProc(ref m);
+            _sidebar?.PerformLayout();
+            _contentHost?.PerformLayout();
+            Invalidate(true);
+            RefreshHostedWpfControls(this);
+            return;
+        }
+
         base.WndProc(ref m);
     }
 
@@ -395,10 +417,233 @@ internal sealed class MainForm : Form
 
         InventarioAutoUploadCoordinator.Stop();
         InventarioSnapshotCoordinator.Stop();
+        AcessoRemotoAgentService.Stop();
+        AcessoRemotoChatForm.CloseIfOpen();
 
         _exitRequested = true;
-        _trayIcon.Visible = false;
-        Close();
+        try
+        {
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+        }
+        catch { }
+
+        try
+        {
+            Close();
+            Application.Exit();
+        }
+        catch { }
+
+        try
+        {
+            SingleInstanceApp.ReleaseFirstInstance();
+        }
+        catch { }
+
+        Environment.Exit(0);
+    }
+
+    Panel CreateRemoteSessionBanner()
+    {
+        var banner = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 48,
+            BackColor = Color.FromArgb(15, 23, 42), // Slate 900
+            Padding = new Padding(20, 0, 20, 0),
+            Visible = false,
+        };
+
+        banner.Paint += (_, e) =>
+        {
+            using var borderPen = new Pen(Color.FromArgb(30, 41, 59));
+            e.Graphics.DrawLine(borderPen, 0, banner.Height - 1, banner.Width, banner.Height - 1);
+        };
+
+        var table = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        var leftFlow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+        };
+
+        var dot = new Label
+        {
+            Text = "●",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 12F, FontStyle.Bold, GraphicsUnit.Point),
+            ForeColor = Color.FromArgb(16, 185, 129), // Emerald 500
+            Margin = new Padding(0, 11, 8, 0),
+        };
+
+        _remoteBannerText = new Label
+        {
+            Text = "Acesso remoto ativo com o técnico",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point),
+            ForeColor = Color.FromArgb(241, 245, 249),
+            Margin = new Padding(0, 13, 0, 0),
+        };
+
+        leftFlow.Controls.Add(dot);
+        leftFlow.Controls.Add(_remoteBannerText);
+
+        var rightFlow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 8, 0, 0),
+        };
+
+        _remoteBannerDisconnectBtn = new Button
+        {
+            Text = "Encerrar Acesso",
+            AutoSize = true,
+            Height = 32,
+            Padding = new Padding(14, 0, 14, 0),
+            Margin = new Padding(8, 0, 0, 0),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold, GraphicsUnit.Point),
+            ForeColor = Color.White,
+            BackColor = Color.FromArgb(220, 38, 38), // Red 600
+            Cursor = Cursors.Hand,
+        };
+        _remoteBannerDisconnectBtn.FlatAppearance.BorderSize = 0;
+        _remoteBannerDisconnectBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(185, 28, 28);
+        _remoteBannerDisconnectBtn.FlatAppearance.MouseDownBackColor = Color.FromArgb(153, 27, 27);
+        _remoteBannerDisconnectBtn.Click += (_, _) =>
+        {
+            var res = MessageBox.Show(
+                this,
+                "Deseja realmente encerrar a sessão de acesso remoto com o técnico?",
+                "Encerrar Acesso Remoto",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+            if (res == DialogResult.Yes)
+            {
+                AcessoRemotoAgentService.DisconnectActiveSession();
+            }
+        };
+
+        _remoteBannerChatBtn = new Button
+        {
+            Text = "Abrir Chat",
+            AutoSize = true,
+            Height = 32,
+            Padding = new Padding(12, 0, 12, 0),
+            Margin = Padding.Empty,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point),
+            ForeColor = Color.FromArgb(226, 232, 240),
+            BackColor = Color.FromArgb(30, 41, 59), // Slate 800
+            Cursor = Cursors.Hand,
+        };
+        _remoteBannerChatBtn.FlatAppearance.BorderColor = Color.FromArgb(51, 65, 85);
+        _remoteBannerChatBtn.FlatAppearance.BorderSize = 1;
+        _remoteBannerChatBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(51, 65, 85);
+        _remoteBannerChatBtn.Click += (_, _) => AcessoRemotoChatForm.ShowOrActivateChat();
+
+        rightFlow.Controls.Add(_remoteBannerDisconnectBtn);
+        rightFlow.Controls.Add(_remoteBannerChatBtn);
+
+        table.Controls.Add(leftFlow, 0, 0);
+        table.Controls.Add(rightFlow, 1, 0);
+
+        banner.Controls.Add(table);
+
+        _remoteBannerDurationTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        _remoteBannerDurationTimer.Tick += (_, _) => UpdateRemoteBannerText();
+
+        return banner;
+    }
+
+    void UpdateRemoteBannerText()
+    {
+        if (_remoteBannerStartTime is null)
+            return;
+
+        var elapsed = DateTimeOffset.Now - _remoteBannerStartTime.Value;
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+        var snap = AcessoRemotoAgentService.GetSnapshot();
+        var tech = !string.IsNullOrWhiteSpace(snap.ConnectedTechnicianName)
+            ? snap.ConnectedTechnicianName
+            : "Técnico de Suporte";
+        _remoteBannerText.Text = $"Acesso remoto ativo com {tech} • Duração: {elapsed:hh\\:mm\\:ss}";
+    }
+
+    void SyncRemoteBannerWithService()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(SyncRemoteBannerWithService);
+            return;
+        }
+
+        var snap = AcessoRemotoAgentService.GetSnapshot();
+        if (snap.IsSessionActive)
+        {
+            _remoteBannerStartTime = snap.SessionStartTime ?? DateTimeOffset.Now;
+            UpdateRemoteBannerText();
+            _remoteSessionBanner.Visible = true;
+            _remoteBannerDurationTimer.Start();
+        }
+        else
+        {
+            _remoteBannerDurationTimer.Stop();
+            _remoteSessionBanner.Visible = false;
+            _remoteBannerStartTime = null;
+        }
+    }
+
+    void OnRemoteAgentStateChanged(object? sender, EventArgs e)
+    {
+        SyncRemoteBannerWithService();
+    }
+
+    void OnRemoteSessionStarted(object? sender, EventArgs e)
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(() => OnRemoteSessionStarted(sender, e));
+            return;
+        }
+
+        SyncRemoteBannerWithService();
+        WindowState = FormWindowState.Minimized;
+        AcessoRemotoChatForm.ShowOrActivateChat();
+    }
+
+    void OnRemoteSessionEnded(object? sender, EventArgs e)
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(() => OnRemoteSessionEnded(sender, e));
+            return;
+        }
+
+        SyncRemoteBannerWithService();
+        AcessoRemotoChatForm.CloseIfOpen();
+        ShowFromTray();
     }
 
     IEnumerable<(string Id, string MenuText)> BuildMenuEntries()
@@ -416,123 +661,39 @@ internal sealed class MainForm : Form
             return;
         }
 
-        UpdateFooterSelection(id);
+        var navId = id.StartsWith("glpi", StringComparison.OrdinalIgnoreCase) ? "glpi" : id;
+        UpdateFooterSelection(navId);
+        if (string.Equals(_activePageId, id, StringComparison.OrdinalIgnoreCase) && _contentHost.Controls.Count > 0)
+        {
+            return;
+        }
+
         _activePageId = id;
         AppDebugLog.Debug("UI", $"Página activa: {id}");
 
-        if (_pageTransitionTimer.Enabled)
+        _contentHost.SuspendLayout();
+        try
         {
-            _pageTransitionTimer.Stop();
-            CancelOngoingPageTransition();
-        }
+            while (_contentHost.Controls.Count > 0)
+            {
+                var c = _contentHost.Controls[0];
+                _contentHost.Controls.RemoveAt(0);
+                c.Dispose();
+            }
 
-        UserControl next = CreatePage(id);
-
-        if (_contentHost.Controls.Count == 0)
-        {
+            var next = CreatePage(id);
             next.Dock = DockStyle.Fill;
             _contentHost.Controls.Add(next);
-            return;
         }
-
-        var previous = (UserControl)_contentHost.Controls[0];
-        StartPageTransition(previous, next);
-    }
-
-    void StartPageTransition(UserControl oldPage, UserControl newPage)
-    {
-        _transitionOldPage = oldPage;
-        _transitionNewPage = newPage;
-
-        var size = _contentHost.ClientSize;
-        oldPage.Dock = DockStyle.None;
-        oldPage.Size = size;
-        oldPage.Location = Point.Empty;
-
-        newPage.Dock = DockStyle.None;
-        newPage.Size = size;
-        newPage.Location = new Point(size.Width, 0);
-        _contentHost.Controls.Add(newPage);
-
-        _transitionStartTick = Environment.TickCount64;
-        _pageTransitionTimer.Start();
-    }
-
-    void OnPageTransitionTick(object? sender, EventArgs e)
-    {
-        if (_transitionOldPage is null || _transitionNewPage is null)
+        finally
         {
-            _pageTransitionTimer.Stop();
-            return;
+            _contentHost.ResumeLayout(true);
         }
-
-        var w = Math.Max(1, _contentHost.ClientSize.Width);
-        var elapsed = Environment.TickCount64 - _transitionStartTick;
-        var t = Math.Min(1d, elapsed / (double)PageTransitionDurationMs);
-        var smooth = t * t * (3d - 2d * t);
-
-        int oldX = (int)Math.Round(-smooth * w);
-        int newX = (int)Math.Round((1d - smooth) * w);
-
-        _transitionOldPage.Location = new Point(oldX, 0);
-        _transitionNewPage.Location = new Point(newX, 0);
-
-        if (t >= 1d)
-            CompletePageTransition();
-    }
-
-    void OnContentHostResizeDuringTransition(object? sender, EventArgs e)
-    {
-        if (!_pageTransitionTimer.Enabled || _transitionOldPage is null || _transitionNewPage is null)
-            return;
-
-        var size = _contentHost.ClientSize;
-        _transitionOldPage.Size = size;
-        _transitionNewPage.Size = size;
-
-        var w = Math.Max(1, size.Width);
-        var elapsed = Environment.TickCount64 - _transitionStartTick;
-        var t = Math.Min(1d, elapsed / (double)PageTransitionDurationMs);
-        var smooth = t * t * (3d - 2d * t);
-        _transitionOldPage.Location = new Point((int)Math.Round(-smooth * w), 0);
-        _transitionNewPage.Location = new Point((int)Math.Round((1d - smooth) * w), 0);
-    }
-
-    void CompletePageTransition()
-    {
-        _pageTransitionTimer.Stop();
-
-        if (_transitionOldPage is not null)
-        {
-            _contentHost.Controls.Remove(_transitionOldPage);
-            _transitionOldPage.Dispose();
-            _transitionOldPage = null;
-        }
-
-        if (_transitionNewPage is not null)
-        {
-            _transitionNewPage.Dock = DockStyle.Fill;
-            _transitionNewPage.Location = Point.Empty;
-            _transitionNewPage = null;
-        }
-    }
-
-    void CancelOngoingPageTransition()
-    {
-        foreach (Control c in _contentHost.Controls.Cast<Control>().ToList())
-        {
-            _contentHost.Controls.Remove(c);
-            c.Dispose();
-        }
-
-        _transitionOldPage = null;
-        _transitionNewPage = null;
     }
 
     void UpdateFooterSelection(string id)
     {
-        bool isSettings = string.Equals(id, "settings", StringComparison.OrdinalIgnoreCase);
-        _footerSettings.Selected = isSettings;
+        _sidebarControl.SetActivePage(id);
     }
 
     void OnChamadosSnapshotUpdated() => RefreshFooterEntityName();
@@ -540,7 +701,7 @@ internal sealed class MainForm : Form
     void RefreshFooterEntityName()
     {
         if (ChamadosDataCache.TryGetEntityDisplayName(out var name))
-            _footerEntityBadge.DisplayText = name;
+            _sidebarControl.EntityDisplayText = name;
     }
 
     async Task PrefetchFooterEntityNameAsync()
@@ -568,7 +729,7 @@ internal sealed class MainForm : Form
             if (string.IsNullOrWhiteSpace(name))
                 name = "Entidade #" + entityId;
 
-            _footerEntityBadge.DisplayText = name;
+            _sidebarControl.EntityDisplayText = name;
         }
         catch
         {
@@ -579,13 +740,20 @@ internal sealed class MainForm : Form
     UserControl CreatePage(string id)
     {
         if (string.Equals(id, "home", StringComparison.OrdinalIgnoreCase))
-            return new HomeView();
+        {
+            var home = new HomeView();
+            home.NavigateRequested += pageId => ShowPage(pageId);
+            return home;
+        }
 
         if (string.Equals(id, "settings", StringComparison.OrdinalIgnoreCase))
             return new SettingsView();
 
         if (string.Equals(id, "client", StringComparison.OrdinalIgnoreCase))
             return new PlaceholderView("Cliente", "Informações da conta ou entidade serão apresentadas aqui.");
+
+        if (string.Equals(id, "glpi:novo", StringComparison.OrdinalIgnoreCase) || string.Equals(id, "abrir-chamado", StringComparison.OrdinalIgnoreCase))
+            return new Modulos.GLPI.GLPIView(openAbertura: true);
 
         if (_modulesById.TryGetValue(id, out var module))
             return module.CreateContentView();

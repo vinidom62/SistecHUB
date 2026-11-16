@@ -1,19 +1,12 @@
+using System.Windows.Forms.Integration;
 using SistecHub.UI;
 
 namespace SistecHub.Modulos.GLPI.Chamados;
 
-/// <summary>Diálogo para exibir o passo actual do envio do chamado (evita a sensação de interface bloqueada).</summary>
+/// <summary>Diálogo para exibir o passo actual do envio do chamado (WPF).</summary>
 internal sealed class EnvioChamadoAguardeForm : Form
 {
-    readonly Label _status = new()
-    {
-        AutoSize = false,
-        TextAlign = ContentAlignment.MiddleLeft,
-        Dock = DockStyle.Fill,
-        Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-        ForeColor = ShellTheme.TextPrimary,
-        BackColor = Color.Transparent,
-    };
+    readonly EnvioChamadoAguardeWpfControl _wpfControl;
 
     internal EnvioChamadoAguardeForm()
     {
@@ -25,9 +18,9 @@ internal sealed class EnvioChamadoAguardeForm : Form
         ShowInTaskbar = false;
         TopMost = false;
         BackColor = ShellTheme.MainBg;
-        ClientSize = new Size(440, 100);
-        Padding = new Padding(20, 18, 20, 18);
-        // Com Show, CenterParent ignora às vezes; após carga garante o centro do parent.
+        ClientSize = new Size(440, 110);
+        Padding = new Padding(0);
+
         Load += (_, _) =>
         {
             if (Owner is not null)
@@ -35,22 +28,23 @@ internal sealed class EnvioChamadoAguardeForm : Form
             else
                 CenterToScreen();
         };
-        var container = new Panel
+
+        _wpfControl = new EnvioChamadoAguardeWpfControl();
+
+        var host = new ElementHost
         {
             Dock = DockStyle.Fill,
             BackColor = ShellTheme.MainBg,
-            Padding = new Padding(0, 0, 0, 0),
+            Child = _wpfControl,
         };
-        container.Controls.Add(_status);
-        Controls.Add(container);
+
+        Controls.Add(host);
     }
 
     internal void DefinirMensagem(string mensagem)
     {
         if (IsDisposed)
             return;
-        _status.Text = mensagem;
-        if (IsHandleCreated)
-            _status.Refresh();
+        _wpfControl.SetStatusText(mensagem);
     }
 }

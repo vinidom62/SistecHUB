@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using SistecHub.Core;
 using Velopack;
 
@@ -8,18 +9,23 @@ public sealed class UpdateCheckWorker
 {
     static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(30);
     static readonly TimeSpan CheckInterval = TimeSpan.FromHours(6);
-    static readonly TimeSpan RequestPollInterval = TimeSpan.FromSeconds(3);
+    static readonly TimeSpan RequestPollInterval = TimeSpan.FromSeconds(1);
 
     readonly ILogger<UpdateCheckWorker> _logger;
+    readonly IHostApplicationLifetime _appLifetime;
 
-    public UpdateCheckWorker(ILogger<UpdateCheckWorker> logger) =>
+    public UpdateCheckWorker(ILogger<UpdateCheckWorker> logger, IHostApplicationLifetime appLifetime)
+    {
         _logger = logger;
+        _appLifetime = appLifetime;
+    }
 
     public async Task RunLoopAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Update worker activo. Intervalo: {Hours}h.", CheckInterval.TotalHours);
         UpdateActivityLog.Info("Update", "Serviço de actualização iniciado.");
         LogEnvironment();
+        NormalizeStatusAfterStartupIfNeeded();
 
         await DelayUntilWorkDueAsync(StartupDelay, stoppingToken).ConfigureAwait(false);
 
@@ -90,7 +96,9 @@ public sealed class UpdateCheckWorker
     }
 
     static bool ShouldApplyPendingNow() =>
-        VelopackUpdateEngine.PendingRestart is not null && !SistecHubAppProcess.IsRunning();
+        VelopackUpdateEngine.PendingRestart is { } pending
+        && !string.Equals(VelopackUpdateEngine.DisplayVersion, pending.Version.ToString(), StringComparison.OrdinalIgnoreCase)
+        && !SistecHubAppProcess.IsRunning();
 
     async Task DelayUntilWorkDueAsync(TimeSpan maxWait, CancellationToken stoppingToken)
     {
@@ -117,6 +125,27 @@ public sealed class UpdateCheckWorker
             $"Velopack={VelopackUpdateEngine.IsInstalled} | Versão={VelopackUpdateEngine.DisplayVersion} | Exe={Environment.ProcessPath}");
     }
 
+    static void NormalizeStatusAfterStartupIfNeeded()
+    {
+        var status = UpdateServiceCoordinator.TryReadStatus();
+        if (status is null)
+            return;
+
+        if (status.Phase is UpdateServicePhase.Applying or UpdateServicePhase.PendingAppClose
+            && !string.IsNullOrWhiteSpace(status.AvailableVersion)
+            && string.Equals(status.AvailableVersion, VelopackUpdateEngine.DisplayVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            var currentVer = VelopackUpdateEngine.DisplayVersion;
+            UpdateActivityLog.Info("Update", $"Serviço iniciado já na versão {currentVer} — a normalizar status pós-atualização para Completed.");
+            WriteStatus(
+                UpdateServicePhase.Completed,
+                $"Atualização concluída — versão {currentVer}.",
+                currentVer,
+                currentVer,
+                100);
+        }
+    }
+
     async Task RunCycleAsync(bool userInstallFlow, bool includePrerelease, CancellationToken cancellationToken)
     {
         if (!VelopackUpdateEngine.IsInstalled)
@@ -129,17 +158,19 @@ public sealed class UpdateCheckWorker
 
         var channel = includePrerelease ? "Beta (pré-releases)" : "estável";
         UpdateActivityLog.Info("Update", $"A iniciar ciclo de actualização ({channel}).");
-        WriteStatus(
-            UpdateServicePhase.Checking,
-            includePrerelease ? "A verificar atualizações Beta..." : "A verificar actualizações...",
-            VelopackUpdateEngine.DisplayVersion);
 
-        if (VelopackUpdateEngine.PendingRestart is { } pending)
+        if (VelopackUpdateEngine.PendingRestart is { } pending
+            && !string.Equals(VelopackUpdateEngine.DisplayVersion, pending.Version.ToString(), StringComparison.OrdinalIgnoreCase))
         {
             UpdateActivityLog.Info("Update", $"Actualização já transferida (pendente): {pending.Version}");
             await TryApplyAsync(pending, userInstallFlow, cancellationToken).ConfigureAwait(false);
             return;
         }
+
+        WriteStatus(
+            UpdateServicePhase.Checking,
+            includePrerelease ? "A verificar atualizações Beta..." : "A verificar actualizações...",
+            VelopackUpdateEngine.DisplayVersion);
 
         UpdateInfo? update;
         try
@@ -183,17 +214,32 @@ public sealed class UpdateCheckWorker
                 ? $"A transferir versão Beta {newVersion}..."
                 : $"A transferir versão {newVersion}...",
             VelopackUpdateEngine.DisplayVersion,
-            newVersion);
+            newVersion,
+            progressPercent: 0);
 
         try
         {
+            var lastReportedProgress = -1;
             await VelopackUpdateEngine.DownloadUpdatesAsync(
                 update,
                 includePrerelease,
                 progress: p =>
                 {
-                    if (p is 0 or 25 or 50 or 75 or 100)
-                        UpdateActivityLog.Info("Update", $"Transferência {newVersion}: {p}%");
+                    var clamped = Math.Clamp(p, 0, 100);
+                    if (clamped != lastReportedProgress)
+                    {
+                        lastReportedProgress = clamped;
+                        var isMilestone = clamped is 0 or 25 or 50 or 75 or 100;
+                        WriteStatus(
+                            UpdateServicePhase.Downloading,
+                            includePrerelease
+                                ? $"A transferir versão Beta {newVersion} ({clamped}%)..."
+                                : $"A transferir versão {newVersion} ({clamped}%)...",
+                            VelopackUpdateEngine.DisplayVersion,
+                            newVersion,
+                            progressPercent: clamped,
+                            logActivity: isMilestone);
+                    }
                 },
                 cancellationToken).ConfigureAwait(false);
         }
@@ -212,6 +258,19 @@ public sealed class UpdateCheckWorker
     async Task TryApplyAsync(VelopackAsset asset, bool userInstallFlow, CancellationToken cancellationToken)
     {
         var version = asset.Version.ToString();
+
+        // Se a versão do asset já é a versão atual em execução/instalada, marca como concluída e evita loop
+        if (string.Equals(VelopackUpdateEngine.DisplayVersion, version, StringComparison.OrdinalIgnoreCase))
+        {
+            UpdateActivityLog.Info("Update", $"Versão {version} já se encontra aplicada no disco. A marcar atualização como concluída.");
+            WriteStatus(
+                UpdateServicePhase.Completed,
+                $"Atualização concluída — versão {version}.",
+                version,
+                version,
+                100);
+            return;
+        }
 
         // Se o utilizador solicitou a instalação (ou fechou após o aviso de contagem regressiva),
         // aguarda o encerramento gracioso do SistecHub.
@@ -235,7 +294,8 @@ public sealed class UpdateCheckWorker
                 UpdateServicePhase.PendingAppClose,
                 $"Versão {version} pronta. Feche o SistecHub para instalar.",
                 VelopackUpdateEngine.DisplayVersion,
-                version);
+                version,
+                100);
             return;
         }
 
@@ -244,24 +304,47 @@ public sealed class UpdateCheckWorker
             UpdateServicePhase.Applying,
             $"A instalar versão {version}...",
             VelopackUpdateEngine.DisplayVersion,
-            version);
+            version,
+            100);
 
-        VelopackUpdateEngine.ScheduleApplyAndExit(asset);
+        // Suspende e encerra o processo auxiliar --remoto-system-helper e qualquer instância residual
+        // para que o Update.exe possa substituir todos os ficheiros em current/ sem bloqueios.
+        RemotoSasCoordinator.SuspendAndStopHelperForUpdate();
+        SistecHubAppProcess.TerminateAll(includeSystemHelper: true);
+        await SistecHubAppProcess.WaitForAllExitAsync(TimeSpan.FromSeconds(3), cancellationToken, includeSystemHelper: true)
+            .ConfigureAwait(false);
+
+        try
+        {
+            VelopackUpdateEngine.ScheduleApplyAndExit(asset);
+            UpdateActivityLog.Info("Update", "Update.exe iniciado. A encerrar o serviço de forma limpa (SERVICE_STOPPED) para permitir a substituição dos ficheiros.");
+            _appLifetime.StopApplication();
+        }
+        catch
+        {
+            RemotoSasCoordinator.ResumeHelperAfterUpdateFailure();
+            throw;
+        }
     }
 
     static void WriteStatus(
         UpdateServicePhase phase,
         string message,
         string? currentVersion = null,
-        string? availableVersion = null)
+        string? availableVersion = null,
+        int progressPercent = 0,
+        bool logActivity = true)
     {
-        UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
-        {
-            LastUpdateUtc = DateTimeOffset.UtcNow,
-            Phase = phase,
-            Message = message,
-            CurrentVersion = currentVersion,
-            AvailableVersion = availableVersion,
-        });
+        UpdateServiceCoordinator.WriteStatus(
+            new UpdateServiceStatus
+            {
+                LastUpdateUtc = DateTimeOffset.UtcNow,
+                Phase = phase,
+                ProgressPercent = progressPercent,
+                Message = message,
+                CurrentVersion = currentVersion,
+                AvailableVersion = availableVersion,
+            },
+            logActivity);
     }
 }

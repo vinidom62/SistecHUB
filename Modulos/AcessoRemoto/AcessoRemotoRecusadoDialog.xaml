@@ -1,0 +1,149 @@
+<Window x:Class="SistecHub.Modulos.AcessoRemoto.AcessoRemotoRecusadoDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Acesso Remoto — Solicitação Recusada"
+        Width="460"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        FontFamily="Segoe UI"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown">
+
+    <Border Background="#FFFFFF"
+            BorderBrush="#E2E8F0"
+            BorderThickness="1"
+            CornerRadius="18"
+            Padding="30,26"
+            Margin="14">
+        <Border.Effect>
+            <DropShadowEffect Color="#0F172A" BlurRadius="32" ShadowDepth="8" Direction="270" Opacity="0.14"/>
+        </Border.Effect>
+
+        <StackPanel>
+            <!-- Topo: Ícone + Título + Botão Fechar -->
+            <Grid Margin="0,0,0,20" Background="Transparent" MouseLeftButtonDown="Window_MouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0"
+                        Width="48" Height="48"
+                        CornerRadius="14"
+                        Background="#FEF2F2"
+                        BorderBrush="#FECACA"
+                        BorderThickness="1"
+                        Margin="0,0,14,0"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="&#xE711;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="20"
+                               Foreground="#DC2626"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Border>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Solicitação Recusada"
+                               FontSize="17.5"
+                               FontWeight="Bold"
+                               Foreground="#0F172A"
+                               Margin="0,0,0,2"/>
+                    <TextBlock Text="Acesso Remoto Sistec"
+                               FontSize="12"
+                               Foreground="#64748B"/>
+                </StackPanel>
+
+                <Button Grid.Column="2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="32" Height="32"
+                        Cursor="Hand"
+                        VerticalAlignment="Top"
+                        ToolTip="Fechar"
+                        Click="BtnClose_Click">
+                    <TextBlock Text="&#xE711;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="12"
+                               Foreground="#94A3B8"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Button>
+            </Grid>
+
+            <!-- Card Central com a Mensagem Amigável -->
+            <Border Background="#F8FAFC"
+                    BorderBrush="#E2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="18,16"
+                    Margin="0,0,0,22">
+                <StackPanel>
+                    <TextBlock x:Name="TxtMainMessage"
+                               Text="A solicitação de acesso remoto foi recusada na máquina do cliente ou o tempo de resposta expirou."
+                               FontSize="13.5"
+                               LineHeight="20"
+                               Foreground="#1E293B"
+                               FontWeight="SemiBold"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,10"/>
+
+                    <TextBlock Text="• Verifique se o cliente na máquina remota recebeu o aviso de permissão na tela."
+                               FontSize="12"
+                               LineHeight="18"
+                               Foreground="#475569"
+                               Margin="0,0,0,4"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="• Se a máquina remota possuir acesso não supervisionado, faça login no Angelus para conectar diretamente com a senha fixa."
+                               FontSize="12"
+                               LineHeight="18"
+                               Foreground="#475569"
+                               Margin="0,0,0,4"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="• Você pode solicitar que o usuário confirme o ID e tentar a conexão novamente."
+                               FontSize="12"
+                               LineHeight="18"
+                               Foreground="#475569"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Botão Entendido -->
+            <Button x:Name="BtnConfirm"
+                    Content="Entendido"
+                    Height="42"
+                    Background="#4F46E5"
+                    Foreground="#FFFFFF"
+                    BorderThickness="0"
+                    FontSize="13.5"
+                    FontWeight="SemiBold"
+                    Cursor="Hand"
+                    Click="BtnClose_Click">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="10">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#4338CA"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#3730A3"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+        </StackPanel>
+    </Border>
+</Window>
+

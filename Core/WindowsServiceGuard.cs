@@ -66,8 +66,11 @@ public static class WindowsServiceGuard
             if (isSilent)
             {
                 // Em arranque silencioso/minimizado, aguarda o serviço em segundo plano sem abrir nenhuma janela na tela
-                for (var i = 0; i < 20 && !IsRunning(); i++)
+                for (var i = 0; i < 30 && !IsRunning(); i++)
                 {
+                    if (i % 3 == 0)
+                        TryStartServiceBestEffort();
+
                     Thread.Sleep(1000);
                 }
 
@@ -105,6 +108,20 @@ public static class WindowsServiceGuard
             + "Se acabou de atualizar, aguarde um momento e abra o SistecHub novamente.\n\n"
             + "Caso contrário, abra «Serviços» (services.msc) e inicie «SistecHub Service».");
         Environment.Exit(1);
+    }
+
+    static void TryStartServiceBestEffort()
+    {
+        try
+        {
+            using var controller = new ServiceController(WindowsServiceConfig.ServiceName);
+            if (controller.Status == ServiceControllerStatus.Stopped)
+                controller.Start();
+        }
+        catch
+        {
+            // O serviço pode estar a reiniciar após actualização.
+        }
     }
 
     static void ShowBlockedMessage(string message)

@@ -7,7 +7,7 @@ public static class PostUpdateAppReopen
 
     public static async Task RunRecoveryLoopAsync(CancellationToken stoppingToken)
     {
-        await TryReopenOnceAsync().ConfigureAwait(false);
+        await TryReopenOnceAsync(stoppingToken).ConfigureAwait(false);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -23,16 +23,20 @@ public static class PostUpdateAppReopen
             if (!UpdateServiceCoordinator.HasReopenAppRequest())
                 continue;
 
-            await TryReopenOnceAsync().ConfigureAwait(false);
+            await TryReopenOnceAsync(stoppingToken).ConfigureAwait(false);
         }
     }
 
-    public static async Task TryReopenOnceAsync()
+    public static async Task TryReopenOnceAsync(CancellationToken stoppingToken = default)
     {
-        if (!UpdateServiceCoordinator.HasReopenAppRequest())
+        if (stoppingToken.IsCancellationRequested || !UpdateServiceCoordinator.HasReopenAppRequest())
             return;
 
-        var version = TryReadReopenRequestVersion();
+        if (UpdateServiceCoordinator.HasPendingWorkRequest())
+            return;
+
+        if (!UpdateServiceCoordinator.TryReadReopenAppRequest(out var version, out var startMinimized))
+            return;
 
         // Se o serviço ainda está a verificar, descarregar ou aplicar o update,
         // NÃO relançar ainda — aguardar o ciclo terminar completamente.
@@ -54,6 +58,17 @@ public static class PostUpdateAppReopen
             return;
         }
 
+        // Se o instalador Update.exe do Velopack ainda estiver em execução, aguarda terminar.
+        try
+        {
+            if (System.Diagnostics.Process.GetProcessesByName("Update").Length > 0)
+                return;
+        }
+        catch
+        {
+            // Ignora falha ao consultar processos.
+        }
+
         // 1. Dá prioridade ao watcher da sessão do utilizador e ignora a Sessão 0
         // (onde os hooks transitórios do Velopack como --veloapp-updated executam).
         if (SistecHubAppProcess.IsRunning(onlyInteractiveSession: true))
@@ -63,8 +78,18 @@ public static class PostUpdateAppReopen
             return;
         }
 
-        // Aguarda 4 segundos para dar tempo ao watcher de sessão do usuário iniciar o processo
-        await Task.Delay(TimeSpan.FromSeconds(4)).ConfigureAwait(false);
+        // Aguarda 10 segundos para dar tempo ao watcher de sessão do utilizador finalizar a tela de progresso e iniciar o processo
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (stoppingToken.IsCancellationRequested || UpdateServiceCoordinator.HasPendingWorkRequest())
+            return;
 
         if (SistecHubAppProcess.IsRunning(onlyInteractiveSession: true))
         {
@@ -74,45 +99,29 @@ public static class PostUpdateAppReopen
         }
 
         // 2. Fallback: se o watcher não iniciou, o serviço tenta relançar via sessão ativa do utilizador
-        if (InteractiveUserAppLauncher.TryLaunchMainAppInActiveSession("serviço pós-actualização"))
+        if (InteractiveUserAppLauncher.TryLaunchMainAppInActiveSession("serviço pós-actualização", forceMinimized: startMinimized))
             MarkReopenCompleted(version);
     }
 
     static void MarkReopenCompleted(string? version)
     {
         UpdateServiceCoordinator.ClearReopenAppRequest();
+        var existing = UpdateServiceCoordinator.TryReadStatus();
+        if (existing?.Phase == UpdateServicePhase.Error)
+            return;
+
+        var currentVer = VelopackUpdateEngine.DisplayVersion;
+        var resolvedVer = !string.IsNullOrWhiteSpace(version) ? version : currentVer;
+
         UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
         {
             Phase = UpdateServicePhase.Completed,
-            Message = string.IsNullOrWhiteSpace(version)
+            ProgressPercent = 100,
+            Message = string.IsNullOrWhiteSpace(resolvedVer)
                 ? "Atualização concluída — SistecHub reaberto."
-                : $"Atualização concluída — versão {version}.",
-            CurrentVersion = version,
-            AvailableVersion = version,
+                : $"Atualização concluída — versão {resolvedVer}.",
+            CurrentVersion = currentVer,
+            AvailableVersion = resolvedVer,
         });
-    }
-
-    static string? TryReadReopenRequestVersion()
-    {
-        try
-        {
-            var path = UpdateServiceCoordinator.ReopenAppRequestFilePath;
-            if (!File.Exists(path))
-                return null;
-
-            var text = File.ReadAllText(path).Trim();
-            if (string.IsNullOrWhiteSpace(text))
-                return null;
-
-            // Fallback do pedido: timestamp ISO em vez da versão.
-            if (DateTimeOffset.TryParse(text, out _))
-                return null;
-
-            return text;
-        }
-        catch
-        {
-            return null;
-        }
     }
 }

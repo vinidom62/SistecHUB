@@ -31,10 +31,11 @@ public sealed class SistecHubWorker : BackgroundService
         var updateTask = _updateWorker.RunLoopAsync(stoppingToken);
         var reopenTask = PostUpdateAppReopen.RunRecoveryLoopAsync(stoppingToken);
         var inventarioTask = _inventarioWorker.RunLoopAsync(stoppingToken);
+        var sasTask = RemotoSasCoordinator.RunServiceListenerLoopAsync(stoppingToken);
 
         try
         {
-            await Task.WhenAll(updateTask, reopenTask, inventarioTask).ConfigureAwait(false);
+            await Task.WhenAll(updateTask, reopenTask, inventarioTask, sasTask).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

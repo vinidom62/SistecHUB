@@ -1,12 +1,14 @@
+using System.Windows.Forms.Integration;
+
 namespace SistecHub.UI;
 
-/// <summary>Aviso antes de permitir editar o ID da máquina do inventário.</summary>
+/// <summary>Aviso antes de permitir editar o ID da máquina do inventário (WPF).</summary>
 internal sealed class MachineIdEditWarningForm : Form
 {
     public MachineIdEditWarningForm()
     {
         Text = "ID da máquina";
-        ClientSize = new Size(440, 200);
+        ClientSize = new Size(440, 190);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -20,87 +22,25 @@ internal sealed class MachineIdEditWarningForm : Form
 
         Win32Dwm.TryEnableRoundedCorners(this);
 
-        var stack = new FlowLayoutPanel
+        var wpfView = new MachineIdEditWarningWpfControl();
+        wpfView.BackRequested += (_, _) =>
+        {
+            DialogResult = DialogResult.Cancel;
+            Close();
+        };
+        wpfView.ContinueRequested += (_, _) =>
+        {
+            DialogResult = DialogResult.OK;
+            Close();
+        };
+
+        var host = new ElementHost
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = false,
-            BackColor = Color.Transparent,
-            Padding = new Padding(32, 28, 32, 28),
+            BackColor = ShellTheme.MainBg,
+            Child = wpfView,
         };
 
-        stack.Controls.Add(new Label
-        {
-            Text = "Atenção",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 16F, FontStyle.Bold, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 12),
-        });
-
-        stack.Controls.Add(new Label
-        {
-            Text = "NÃO MODIFICAR SEM CONHECIMENTO",
-            AutoSize = true,
-            MaximumSize = new Size(360, 0),
-            Font = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point),
-            ForeColor = Color.FromArgb(185, 28, 28),
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 20),
-        });
-
-        var buttons = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0),
-        };
-
-        var backButton = new Button
-        {
-            Text = "Voltar",
-            AutoSize = true,
-            Height = 34,
-            Padding = new Padding(16, 0, 16, 0),
-            Margin = new Padding(0, 0, 8, 0),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            BackColor = Color.FromArgb(241, 245, 249),
-            Cursor = Cursors.Hand,
-            DialogResult = DialogResult.Cancel,
-        };
-        backButton.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
-        backButton.FlatAppearance.BorderSize = 1;
-
-        var continueButton = new Button
-        {
-            Text = "Continuar",
-            AutoSize = true,
-            Height = 34,
-            Padding = new Padding(16, 0, 16, 0),
-            Margin = new Padding(0),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.White,
-            BackColor = ShellTheme.Accent,
-            Cursor = Cursors.Hand,
-            DialogResult = DialogResult.OK,
-        };
-        continueButton.FlatAppearance.BorderSize = 0;
-        continueButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
-        continueButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
-
-        buttons.Controls.Add(backButton);
-        buttons.Controls.Add(continueButton);
-        stack.Controls.Add(buttons);
-
-        Controls.Add(stack);
-        AcceptButton = continueButton;
-        CancelButton = backButton;
+        Controls.Add(host);
     }
 }

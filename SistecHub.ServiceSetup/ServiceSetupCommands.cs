@@ -32,6 +32,7 @@ static class ServiceSetupCommands
 
             SetServiceDescription();
             ConfigureServiceRecovery();
+            ConfigureServicePermissions();
             StartService();
             PawnIoInstaller.EnsureInstalled(Path.GetDirectoryName(serviceExePath));
             ServiceLogWriter.Info("Setup", "Serviço instalado e iniciado.");
@@ -60,6 +61,8 @@ static class ServiceSetupCommands
                 return Install(serviceExePath);
 
             ConfigureServiceBinaryPath(serviceExePath);
+            ConfigureServiceRecovery();
+            ConfigureServicePermissions();
             StartService();
             PawnIoInstaller.EnsureInstalled(Path.GetDirectoryName(serviceExePath));
             ServiceLogWriter.Info("Setup", "Serviço actualizado e activo.");
@@ -135,6 +138,19 @@ static class ServiceSetupCommands
     static void ConfigureServiceRecovery()
     {
         RunSc($"failure {WindowsServiceConfig.ServiceName} reset= 86400 actions= restart/60000/restart/60000/restart/60000");
+    }
+
+    /// <summary>
+    /// Concede permissões de consulta, inicialização (RP) e paragem (WP) para utilizadores interativos (IU)
+    /// e autenticados (AU), evitando erro de acesso negado (Win32Exception 5) quando o app sem elevação
+    /// recupera ou inicia o serviço após atualização.
+    /// </summary>
+    static void ConfigureServicePermissions()
+    {
+        const string sddl = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWRPWPLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;SU)";
+        var exitCode = RunSc($"sdset {WindowsServiceConfig.ServiceName} \"{sddl}\"");
+        if (exitCode != 0)
+            ServiceLogWriter.Warn("Setup", $"sc sdset retornou código {exitCode}.");
     }
 
     static void StartService()

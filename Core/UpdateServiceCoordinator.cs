@@ -33,42 +33,157 @@ public static class UpdateServiceCoordinator
     public static bool IsServiceRecoveryLikelyUpdateRelated()
     {
         var status = TryReadStatus();
-        if (status?.Phase is UpdateServicePhase.Applying
-            or UpdateServicePhase.PendingAppClose
-            or UpdateServicePhase.Completed)
-            return true;
+        if (status is not null)
+        {
+            if (status.Phase == UpdateServicePhase.Completed)
+            {
+                // Reconhece a fase Completed recente (últimos 3 minutos) como parte válida do ciclo pós-atualização
+                return DateTimeOffset.UtcNow - status.LastUpdateUtc <= TimeSpan.FromMinutes(3);
+            }
+
+            // Se o status está há mais de 4 minutos em Applying, provavelmente já foi aplicado ou expirou
+            if (status.Phase == UpdateServicePhase.Applying
+                && DateTimeOffset.UtcNow - status.LastUpdateUtc > TimeSpan.FromMinutes(4))
+            {
+                return false;
+            }
+
+            if (status.Phase is UpdateServicePhase.Applying or UpdateServicePhase.PendingAppClose)
+                return true;
+        }
 
         return VelopackUpdateEngine.PendingRestart is not null
             || HasReopenAppRequest();
     }
 
-    public static void RequestImmediateCheck()
+    public static void RequestImmediateCheck(bool resetStatus = true)
     {
         SharedMachineStorage.EnsureDirectory();
+        if (resetStatus)
+        {
+            var current = TryReadStatus();
+            var isActivelyDownloading = current?.Phase == UpdateServicePhase.Downloading
+                && DateTimeOffset.UtcNow - current.LastUpdateUtc <= TimeSpan.FromSeconds(30);
+
+            if (current?.Phase is not UpdateServicePhase.Applying && !isActivelyDownloading)
+            {
+                WriteStatus(new UpdateServiceStatus
+                {
+                    LastUpdateUtc = DateTimeOffset.UtcNow,
+                    Phase = UpdateServicePhase.Checking,
+                    ProgressPercent = 0,
+                    Message = "A verificar atualizações...",
+                    CurrentVersion = VelopackUpdateEngine.DisplayVersion,
+                });
+            }
+        }
+
         File.WriteAllText(RequestFilePath, DateTimeOffset.UtcNow.ToString("O"));
     }
 
     /// <summary>Só via botão manual — nunca usado pela verificação automática.</summary>
-    public static void RequestImmediateBetaCheck()
+    public static void RequestImmediateBetaCheck(bool resetStatus = true)
     {
         SharedMachineStorage.EnsureDirectory();
+        if (resetStatus)
+        {
+            var current = TryReadStatus();
+            var isActivelyDownloading = current?.Phase == UpdateServicePhase.Downloading
+                && DateTimeOffset.UtcNow - current.LastUpdateUtc <= TimeSpan.FromSeconds(30);
+
+            if (current?.Phase is not UpdateServicePhase.Applying && !isActivelyDownloading)
+            {
+                WriteStatus(new UpdateServiceStatus
+                {
+                    LastUpdateUtc = DateTimeOffset.UtcNow,
+                    Phase = UpdateServicePhase.Checking,
+                    ProgressPercent = 0,
+                    Message = "A verificar atualizações Beta...",
+                    CurrentVersion = VelopackUpdateEngine.DisplayVersion,
+                });
+            }
+        }
+
         File.WriteAllText(BetaRequestFilePath, DateTimeOffset.UtcNow.ToString("O"));
     }
 
     /// <summary>Pedido explícito do utilizador para transferir e instalar a actualização.</summary>
-    public static void RequestInstall()
+    public static void RequestInstall(string? version = null)
     {
         SharedMachineStorage.EnsureDirectory();
+        var current = TryReadStatus();
+        var targetVer = !string.IsNullOrWhiteSpace(version) ? version : current?.AvailableVersion;
+
+        WriteStatus(new UpdateServiceStatus
+        {
+            LastUpdateUtc = DateTimeOffset.UtcNow,
+            Phase = UpdateServicePhase.Applying,
+            ProgressPercent = 100,
+            Message = string.IsNullOrWhiteSpace(targetVer)
+                ? "A iniciar aplicação da atualização..."
+                : $"A instalar versão {targetVer}...",
+            CurrentVersion = VelopackUpdateEngine.DisplayVersion,
+            AvailableVersion = targetVer,
+        });
+
         File.WriteAllText(InstallRequestFilePath, DateTimeOffset.UtcNow.ToString("O"));
-        RequestImmediateCheck();
     }
 
     /// <summary>Pedido para o serviço relançar o SistecHub na sessão do utilizador após actualizar.</summary>
-    public static void RequestReopenAppAfterUpdate(string? version = null)
+    public static void RequestReopenAppAfterUpdate(string? version = null, bool? startMinimized = null)
     {
         SharedMachineStorage.EnsureDirectory();
-        File.WriteAllText(ReopenAppRequestFilePath, version ?? DateTimeOffset.UtcNow.ToString("O"));
-        UpdateActivityLog.Info("Update", "Pedido de reabertura do SistecHub registado.");
+
+        bool resolvedMinimized;
+        if (startMinimized.HasValue)
+        {
+            resolvedMinimized = startMinimized.Value;
+        }
+        else if (TryReadReopenAppRequest(out var existingVer, out var existingMinimized))
+        {
+            version ??= existingVer;
+            resolvedMinimized = existingMinimized;
+        }
+        else
+        {
+            // Se o pedido foi criado diretamente pelo serviço sem sinal prévio da UI aberta, reabre discretamente.
+            resolvedMinimized = true;
+        }
+
+        var verPart = string.IsNullOrWhiteSpace(version) ? DateTimeOffset.UtcNow.ToString("O") : version.Trim();
+        var modePart = resolvedMinimized ? "minimized" : "normal";
+        File.WriteAllText(ReopenAppRequestFilePath, $"{verPart}|{modePart}");
+        UpdateActivityLog.Info("Update", $"Pedido de reabertura do SistecHub registado (versão='{version}', modo={modePart}).");
+    }
+
+    public static bool TryReadReopenAppRequest(out string? version, out bool startMinimized)
+    {
+        version = null;
+        startMinimized = false;
+
+        try
+        {
+            if (!File.Exists(ReopenAppRequestFilePath))
+                return false;
+
+            var raw = File.ReadAllText(ReopenAppRequestFilePath).Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+                return true;
+
+            var parts = raw.Split('|', 2, StringSplitOptions.TrimEntries);
+            var first = parts[0];
+            if (!string.IsNullOrWhiteSpace(first) && !DateTimeOffset.TryParse(first, out _))
+                version = first;
+
+            if (parts.Length > 1)
+                startMinimized = string.Equals(parts[1], "minimized", StringComparison.OrdinalIgnoreCase);
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static bool HasReopenAppRequest() => File.Exists(ReopenAppRequestFilePath);
@@ -108,13 +223,16 @@ public static class UpdateServiceCoordinator
         || File.Exists(BetaRequestFilePath);
 
     public static bool IsInstallReady(UpdateServiceStatus? status) =>
-        VelopackUpdateEngine.PendingRestart is not null
+        (VelopackUpdateEngine.PendingRestart is { } p && !string.Equals(p.Version.ToString(), VelopackUpdateEngine.DisplayVersion, StringComparison.OrdinalIgnoreCase))
         || status?.Phase is UpdateServicePhase.PendingAppClose or UpdateServicePhase.Applying;
 
     public static string DescribeStatusForUi(UpdateServiceStatus? status)
     {
-        if (VelopackUpdateEngine.PendingRestart is { } pending)
+        if (VelopackUpdateEngine.PendingRestart is { } pending
+            && !string.Equals(pending.Version.ToString(), VelopackUpdateEngine.DisplayVersion, StringComparison.OrdinalIgnoreCase))
+        {
             return $"Versão {pending.Version} pronta para instalar.";
+        }
 
         if (status is null)
             return "A verificar atualizações...";
@@ -123,8 +241,8 @@ public static class UpdateServiceCoordinator
         {
             UpdateServicePhase.Checking => "A verificar atualizações...",
             UpdateServicePhase.Downloading => status.AvailableVersion is { } v
-                ? $"A transferir versão {v}..."
-                : "A transferir atualização...",
+                ? $"A transferir versão {v} ({status.ProgressPercent}%)..."
+                : $"A transferir atualização ({status.ProgressPercent}%)...",
             UpdateServicePhase.PendingAppClose => status.AvailableVersion is { } ready
                 ? $"Versão {ready} pronta — será instalada ao fechar o SistecHub."
                 : status.Message,
@@ -170,14 +288,25 @@ public static class UpdateServiceCoordinator
         }
     }
 
-    public static void WriteStatus(UpdateServiceStatus status)
+    public static void WriteStatus(UpdateServiceStatus status, bool logActivity = true)
     {
         try
         {
             SharedMachineStorage.EnsureDirectory();
             var json = JsonSerializer.Serialize(status, JsonOptions);
-            File.WriteAllText(StatusFilePath, json);
-            UpdateActivityLog.Info("Update", $"Estado: {status.Phase} — {status.Message}");
+            var tempPath = StatusFilePath + ".tmp";
+            try
+            {
+                File.WriteAllText(tempPath, json);
+                File.Move(tempPath, StatusFilePath, overwrite: true);
+            }
+            catch
+            {
+                File.WriteAllText(StatusFilePath, json);
+            }
+
+            if (logActivity)
+                UpdateActivityLog.Info("Update", $"Estado: {status.Phase} — {status.Message}");
         }
         catch
         {
@@ -228,6 +357,8 @@ public sealed class UpdateServiceStatus
     public DateTimeOffset LastUpdateUtc { get; init; } = DateTimeOffset.UtcNow;
 
     public UpdateServicePhase Phase { get; init; } = UpdateServicePhase.Idle;
+
+    public int ProgressPercent { get; init; }
 
     public string Message { get; init; } = "";
 

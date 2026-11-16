@@ -202,6 +202,7 @@ public sealed class InventarioWorker
             });
 
             var snapshot = await Task.Run(InventarioHardwareReader.ReadInventory, cancellationToken)
+                .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
 
             var settings = AppSettingsStore.Load();
@@ -269,6 +270,7 @@ public sealed class InventarioWorker
             });
 
             var snapshot = preCollectedSnapshot ?? await Task.Run(InventarioHardwareReader.ReadInventory, cancellationToken)
+                .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
 
             _ = await InventarioGlpiInventoryUpload.PostInventoryPayloadAsync(snapshot, settings, cancellationToken)

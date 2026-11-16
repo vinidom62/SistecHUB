@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Velopack;
 using Velopack.Sources;
 
@@ -87,8 +88,9 @@ public static class VelopackUpdateEngine
     }
 
     /// <summary>
-    /// Aplica via Velopack e termina o processo actual (serviço).
-    /// Os hooks Velopack no app principal reiniciam o serviço após a actualização.
+    /// Agenda a aplicação da atualização pelo <c>Update.exe</c> do Velopack aguardando o encerramento
+    /// limpo deste processo (<c>--waitPid</c>) sem chamar <c>Environment.Exit</c> diretamente,
+    /// permitindo que o serviço Windows notifique <c>SERVICE_STOPPED</c> ao SCM sem crash (Event 7031).
     /// </summary>
     public static void ScheduleApplyAndExit(VelopackAsset asset)
     {
@@ -98,7 +100,7 @@ public static class VelopackUpdateEngine
             return;
         }
 
-        UpdateActivityLog.Info("Update", $"A aplicar versão {asset.Version} via Velopack (processo actual termina).");
+        UpdateActivityLog.Info("Update", $"A agendar aplicação da versão {asset.Version} via Update.exe (aguardando fecho gracioso do serviço).");
         UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
         {
             Phase = UpdateServicePhase.Applying,
@@ -110,11 +112,57 @@ public static class VelopackUpdateEngine
         try
         {
             UpdateServiceCoordinator.RequestReopenAppAfterUpdate(asset.Version.ToString());
-            StableManager.ApplyUpdatesAndExit(asset);
+
+            var locator = VelopackInstallLocator.Create();
+            var updateExe = locator.UpdateExePath;
+            var pid = Environment.ProcessId;
+            var logPath = Path.Combine(SharedMachineStorage.RootPath, "velopack-apply.log");
+
+            string? packagePath = null;
+            if (!string.IsNullOrWhiteSpace(locator.PackagesDir) && !string.IsNullOrWhiteSpace(asset.FileName))
+            {
+                var candidate = Path.Combine(locator.PackagesDir, asset.FileName);
+                if (File.Exists(candidate))
+                    packagePath = candidate;
+            }
+
+            if (!string.IsNullOrWhiteSpace(updateExe) && File.Exists(updateExe))
+            {
+                var argsBuilder = $"apply --waitPid {pid} --silent --norestart";
+                if (!string.IsNullOrWhiteSpace(packagePath))
+                    argsBuilder += $" --package \"{packagePath}\"";
+                argsBuilder += $" --log \"{logPath}\"";
+
+                var workingDir = Path.GetDirectoryName(updateExe)
+                    ?? locator.RootAppDir
+                    ?? AppContext.BaseDirectory;
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = updateExe,
+                    Arguments = argsBuilder,
+                    WorkingDirectory = workingDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                };
+
+                var proc = Process.Start(startInfo)
+                    ?? throw new InvalidOperationException("Não foi possível iniciar o processo Update.exe.");
+
+                UpdateActivityLog.Info(
+                    "Update",
+                    $"Update.exe iniciado (PID {proc.Id}) com argumentos: {argsBuilder}");
+            }
+            else
+            {
+                UpdateActivityLog.Warn("Update", "Update.exe não localizado diretamente no caminho padrão; a usar WaitExitThenApplyUpdates.");
+                StableManager.WaitExitThenApplyUpdates(asset, silent: true, restart: false);
+            }
         }
         catch (Exception ex)
         {
-            UpdateActivityLog.LogException("Update", ex, "ApplyUpdatesAndExit falhou.");
+            UpdateActivityLog.LogException("Update", ex, "ScheduleApplyAndExit falhou.");
             UpdateServiceCoordinator.WriteStatus(new UpdateServiceStatus
             {
                 Phase = UpdateServicePhase.Error,

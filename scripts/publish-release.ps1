@@ -32,12 +32,17 @@ if (-not $Version) { throw "Nao foi possivel ler a versao do projeto." }
 
 Write-Host "Versao: $Version" -ForegroundColor Cyan
 
-# Limpar publish evita misturar DLLs de builds anteriores.
+# Limpar publish e pastas intermediarias para evitar misturar DLLs ou caches XAML (.g.cs) obsoletos.
 if (Test-Path $PublishDir) {
     Write-Host "Limpando pasta publish..." -ForegroundColor Cyan
     Remove-Item -Path (Join-Path $PublishDir "*") -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $PublishDir | Out-Null
+
+Write-Host "Limpando pastas bin/obj intermediarias..." -ForegroundColor Cyan
+Get-ChildItem -Path $Root -Include obj, bin -Recurse -Directory | ForEach-Object {
+    Remove-Item -Path $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # Ordem: Setup -> App -> Service (Service por ultimo para garantir deps do LHM).
 Write-Host "Publicando utilitario de servico (self-contained win-x64)..." -ForegroundColor Cyan

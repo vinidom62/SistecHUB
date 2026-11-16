@@ -24,6 +24,9 @@ internal static class SecureCredentialStore
 
         public string GroqApiKey { get; set; } = "";
 
+        /// <summary>Senha criptografada do técnico no GLPI (salva apenas com consentimento explícito).</summary>
+        public string TecnicoGlpiPassword { get; set; } = "";
+
         public string ResolvedGlpiUserToken =>
             !string.IsNullOrEmpty(GlpiUserToken) ? GlpiUserToken : GlpiPassword;
     }
@@ -47,14 +50,51 @@ internal static class SecureCredentialStore
     {
         Directory.CreateDirectory(settingsDirectory);
 
+        var existingTecnicoPassword = LoadTecnicoPassword(settingsDirectory);
         var payload = new CredentialPayload
         {
             GlpiUserToken = glpiUserToken.Trim(),
             GroqApiKey = groqApiKey.Trim(),
+            TecnicoGlpiPassword = existingTecnicoPassword,
         };
         var jsonBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, JsonOptions));
         var protectedBytes = ProtectedData.Protect(jsonBytes, Entropy, DataProtectionScope.LocalMachine);
         File.WriteAllBytes(GetFilePath(settingsDirectory), protectedBytes);
+    }
+
+    public static string LoadTecnicoPassword(string settingsDirectory)
+    {
+        var path = GetFilePath(settingsDirectory);
+        if (!File.Exists(path))
+            return "";
+
+        if (TryUnprotectFile(path, DataProtectionScope.LocalMachine, out var machinePayload))
+            return machinePayload.TecnicoGlpiPassword ?? "";
+
+        if (TryUnprotectFile(path, DataProtectionScope.CurrentUser, out var userPayload))
+            return userPayload.TecnicoGlpiPassword ?? "";
+
+        return "";
+    }
+
+    public static void SaveTecnicoPassword(string settingsDirectory, string tecnicoPassword)
+    {
+        Directory.CreateDirectory(settingsDirectory);
+        var path = GetFilePath(settingsDirectory);
+
+        var payload = new CredentialPayload();
+        if (File.Exists(path))
+        {
+            if (TryUnprotectFile(path, DataProtectionScope.LocalMachine, out var existing))
+                payload = existing;
+            else if (TryUnprotectFile(path, DataProtectionScope.CurrentUser, out var existingUser))
+                payload = existingUser;
+        }
+
+        payload.TecnicoGlpiPassword = tecnicoPassword?.Trim() ?? "";
+        var jsonBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, JsonOptions));
+        var protectedBytes = ProtectedData.Protect(jsonBytes, Entropy, DataProtectionScope.LocalMachine);
+        File.WriteAllBytes(path, protectedBytes);
     }
 
     static bool TryUnprotectFile(string path, DataProtectionScope scope, out CredentialPayload payload)

@@ -6,15 +6,25 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <RootNamespace>SistecHub</RootNamespace>
     <AssemblyName>SistecHub</AssemblyName>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>2.3.1</Version>
+    <Version>2.9.0</Version>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <RetainVMGarbageCollection>false</RetainVMGarbageCollection>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tempor*/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
@@ -28,10 +38,7 @@
 
   <ItemGroup>
     <None Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" Link="Assets\%(RecursiveDir)%(Filename)%(Extension)" />
-    <None Include="ThirdParty\PawnIO\PawnIO_setup.exe"
-          Link="PawnIO_setup.exe"
-          CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('ThirdParty\PawnIO\PawnIO_setup.exe')" />
+    <None Include="ThirdParty\PawnIO\PawnIO_setup.exe" Link="PawnIO_setup.exe" CopyToOutputDirectory="PreserveNewest" Condition="Exists('ThirdParty\PawnIO\PawnIO_setup.exe')" />
   </ItemGroup>
 
   <ItemGroup>
@@ -41,6 +48,11 @@
     <Compile Remove="SistecHub.ServiceSetup\**" />
     <EmbeddedResource Remove="SistecHub.ServiceSetup\**" />
     <None Remove="SistecHub.ServiceSetup\**" />
+    <Compile Remove="Tempor*/**" />
+    <EmbeddedResource Remove="Tempor*/**" />
+    <None Remove="Tempor*/**" />
+    <Page Remove="Tempor*/**" />
+    <ApplicationDefinition Remove="Tempor*/**" />
   </ItemGroup>
 
 </Project>

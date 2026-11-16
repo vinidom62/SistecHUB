@@ -5,14 +5,14 @@ using SistecHub.Modulos.GLPI;
 
 namespace SistecHub.Modulos.Inventario;
 
-/// <summary>Garante que existe um ID de máquina GLPI; regista via PluginSistechubMachine se necessário.</summary>
+/// <summary>Garante que existe um ID de máquina no Sistema Angelus; regista via PluginSistechubMachine se necessário.</summary>
 internal static class InventarioMachineRegistration
 {
     public static bool HasMachineId(AppUserSettings settings) =>
         InventarioPluginPayloadJson.ParsePluginMachineId(settings.GlpiMachineId) > 0;
 
     /// <summary>
-    /// Se ainda não houver ID, cria a máquina no GLPI, grava o ID nas definições e devolve-o.
+    /// Se ainda não houver ID, cria a máquina no Sistema Angelus, grava o ID nas definições e devolve-o.
     /// Devolve <c>null</c> quando já existia ID (nada a fazer).
     /// </summary>
     public static async Task<int?> EnsureRegisteredAsync(
@@ -60,6 +60,34 @@ internal static class InventarioMachineRegistration
 
         settings.GlpiMachineId = createdId.ToString();
         AppSettingsStore.Save(settings);
+
+        try
+        {
+            var accessInfo = await GlpiApiClient.GetMachineRemoteAccessAsync(settings, createdId, cancellationToken).ConfigureAwait(false);
+            if (accessInfo != null)
+            {
+                var changed = false;
+                if (!string.IsNullOrWhiteSpace(accessInfo.RemotoId) && accessInfo.RemotoId != settings.RemotoId)
+                {
+                    settings.RemotoId = accessInfo.RemotoId;
+                    changed = true;
+                }
+                var effectivePwd = accessInfo.UnattendedEnabled ? accessInfo.UnattendedPassword : "";
+                if (effectivePwd != settings.RemotoUnattendedPassword)
+                {
+                    settings.RemotoUnattendedPassword = effectivePwd;
+                    changed = true;
+                }
+                if (changed)
+                {
+                    AppSettingsStore.Save(settings);
+                }
+            }
+        }
+        catch
+        {
+        }
+
         return createdId;
     }
 

@@ -1,9 +1,11 @@
+using System.Windows.Forms.Integration;
+
 namespace SistecHub.UI;
 
-/// <summary>Contagem regressiva antes de reiniciar o app para aplicar actualização.</summary>
+/// <summary>Contagem regressiva antes de reiniciar o app para aplicar actualização (WPF).</summary>
 internal sealed class UpdateCountdownForm : Form
 {
-    readonly Label _countdownLabel;
+    readonly UpdateCountdownWpfControl _wpfControl;
     readonly System.Windows.Forms.Timer _timer;
     int _secondsRemaining;
 
@@ -28,55 +30,24 @@ internal sealed class UpdateCountdownForm : Form
 
         Win32Dwm.TryEnableRoundedCorners(this);
 
-        var stack = new TableLayoutPanel
+        _wpfControl = new UpdateCountdownWpfControl();
+        _wpfControl.SetTitle(version);
+
+        var host = new ElementHost
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 3,
-            Padding = new Padding(28, 24, 28, 24),
-            BackColor = Color.Transparent,
-        };
-        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        var title = new Label
-        {
-            Text = $"Versão {version} pronta para instalar",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 14F, FontStyle.Bold, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            Margin = new Padding(0, 0, 0, 8),
+            BackColor = ShellTheme.MainBg,
+            Child = _wpfControl,
         };
 
-        var info = new Label
-        {
-            Text = "O SistecHub irá reiniciar automaticamente para aplicar a atualização.",
-            AutoSize = true,
-            MaximumSize = new Size(400, 0),
-            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextMuted,
-            Margin = new Padding(0, 0, 0, 12),
-        };
-
-        _countdownLabel = new Label
-        {
-            AutoSize = true,
-            Font = new Font("Segoe UI", 11F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.Accent,
-        };
-
-        stack.Controls.Add(title, 0, 0);
-        stack.Controls.Add(info, 0, 1);
-        stack.Controls.Add(_countdownLabel, 0, 2);
-        Controls.Add(stack);
+        Controls.Add(host);
 
         _timer = new System.Windows.Forms.Timer { Interval = 1000 };
         _timer.Tick += OnTimerTick;
 
         Shown += (_, _) =>
         {
-            UpdateCountdownText();
+            _wpfControl.SetCountdown(_secondsRemaining);
             _timer.Start();
         };
     }
@@ -90,11 +61,8 @@ internal sealed class UpdateCountdownForm : Form
             return;
         }
 
-        UpdateCountdownText();
+        _wpfControl.SetCountdown(_secondsRemaining);
     }
-
-    void UpdateCountdownText() =>
-        _countdownLabel.Text = $"Reiniciando em {_secondsRemaining} segundo{(_secondsRemaining == 1 ? "" : "s")}...";
 
     void Complete()
     {

@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using SistecHub.Core;
+using SistecHub.Modulos.AcessoRemoto;
 using SistecHub.Modulos.GLPI;
 using SistecHub.Modulos.IA;
 
@@ -36,29 +37,82 @@ public static class ChamadoParaGLPI
 
     /// <summary>Texto completo da descrição (corpo do ticket no GLPI).</summary>
     /// <remarks>GLPI renderiza HTML: usa <c>&lt;br&gt;</c> para quebras (newline puro é ignorado).</remarks>
-    public static string MontarDescricao(AberturaChamadoView view, AppUserSettings settings)
+    public static string MontarDescricao(
+        string textoProblema,
+        string whatsapp,
+        string nomeContato,
+        string anyDesk,
+        bool anyDeskNaoSeAplica,
+        string? remotoId,
+        string observacoes,
+        AppUserSettings settings)
     {
         var sb = new StringBuilder();
         AppendHtmlLine(sb, "Chamado aberto a partir do SistecHub.");
         AppendHtmlBreak(sb);
         AppendHtmlLine(sb, "— Relato do problema —");
-        AppendHtmlMultiline(sb, string.IsNullOrEmpty(view.TextoProblema) ? "(não indicado)" : view.TextoProblema);
+        AppendHtmlMultiline(sb, string.IsNullOrEmpty(textoProblema) ? "(não indicado)" : textoProblema);
         AppendHtmlBreak(sb);
         AppendHtmlLine(sb, "— Contato —");
-        AppendLinhaWhatsAppHtml(sb, view.Whatsapp);
+        AppendLinhaWhatsAppHtml(sb, whatsapp);
         AppendHtmlLine(
             sb,
-            "Nome: " + (string.IsNullOrEmpty(view.NomeContato) ? "(não indicado)" : view.NomeContato));
-        AppendLinhaAnyDeskHtml(sb, view);
+            "Nome: " + (string.IsNullOrEmpty(nomeContato) ? "(não indicado)" : nomeContato));
+        AppendLinhaAcessoRemotoSistecHubHtml(sb, remotoId, settings);
+        AppendLinhaAnyDeskHtml(sb, anyDesk, anyDeskNaoSeAplica);
 
         AppendLinhaMaquinaHtml(sb, settings);
         AppendHtmlBreak(sb);
         AppendHtmlLine(sb, "— Observações —");
         AppendHtmlMultiline(
             sb,
-            string.IsNullOrEmpty(view.Observacoes) ? "(não indicado)" : view.Observacoes);
+            string.IsNullOrEmpty(observacoes) ? "(não indicado)" : observacoes);
 
         return sb.ToString();
+    }
+
+    /// <summary>Texto completo da descrição a partir dos parâmetros de campos comuns.</summary>
+    public static string MontarDescricao(
+        string textoProblema,
+        string whatsapp,
+        string nomeContato,
+        string anyDesk,
+        bool anyDeskNaoSeAplica,
+        string observacoes,
+        AppUserSettings settings) =>
+        MontarDescricao(
+            textoProblema,
+            whatsapp,
+            nomeContato,
+            anyDesk,
+            anyDeskNaoSeAplica,
+            settings.RemotoId,
+            observacoes,
+            settings);
+
+    /// <summary>Texto completo da descrição a partir do formulário.</summary>
+    public static string MontarDescricao(AberturaChamadoView view, AppUserSettings settings) =>
+        MontarDescricao(
+            view.TextoProblema,
+            view.Whatsapp,
+            view.NomeContato,
+            view.AnyDesk,
+            view.AnyDeskNaoSeAplica,
+            view.RemotoId,
+            view.Observacoes,
+            settings);
+
+    static void AppendLinhaAcessoRemotoSistecHubHtml(StringBuilder sb, string? remotoId, AppUserSettings settings)
+    {
+        var raw = (remotoId ?? "").Trim().Replace(" ", "").Replace("-", "");
+        if (raw.Length == 0)
+            raw = (settings.RemotoId ?? "").Trim().Replace(" ", "").Replace("-", "");
+
+        if (raw.Length == 0)
+            return;
+
+        var formatado = AcessoRemotoAgentService.FormatId(raw);
+        AppendHtmlLine(sb, "Acesso Remoto SistecHUB: " + formatado);
     }
 
     static void AppendLinhaWhatsAppHtml(StringBuilder sb, string whatsapp)
@@ -81,18 +135,21 @@ public static class ChamadoParaGLPI
         AppendHtmlBreak(sb);
     }
 
-    static void AppendLinhaAnyDeskHtml(StringBuilder sb, AberturaChamadoView view)
+    static void AppendLinhaAnyDeskHtml(StringBuilder sb, string anyDesk, bool anyDeskNaoSeAplica)
     {
         string valor;
-        if (view.AnyDeskNaoSeAplica && string.IsNullOrEmpty(view.AnyDesk))
+        if (anyDeskNaoSeAplica && string.IsNullOrEmpty(anyDesk))
             valor = "não se aplica";
-        else if (string.IsNullOrEmpty(view.AnyDesk))
+        else if (string.IsNullOrEmpty(anyDesk))
             valor = "(não indicado)";
         else
-            valor = view.AnyDesk.Trim();
+            valor = anyDesk.Trim();
 
         AppendHtmlLine(sb, "AnyDesk: " + valor);
     }
+
+    static void AppendLinhaAnyDeskHtml(StringBuilder sb, AberturaChamadoView view) =>
+        AppendLinhaAnyDeskHtml(sb, view.AnyDesk, view.AnyDeskNaoSeAplica);
 
     static void AppendLinhaMaquinaHtml(StringBuilder sb, AppUserSettings settings)
     {
@@ -351,17 +408,27 @@ public static class ChamadoParaGLPI
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(view.TextoProblema))
+        // Captura todos os dados dos controlos WPF/WinForms no thread de UI antes de qualquer operação assíncrona
+        var textoProblema = (view.TextoProblema ?? "").Trim();
+        var whatsapp = (view.Whatsapp ?? "").Trim();
+        var nomeContato = (view.NomeContato ?? "").Trim();
+        var anyDesk = (view.AnyDesk ?? "").Trim();
+        var anyDeskNaoSeAplica = view.AnyDeskNaoSeAplica;
+        var remotoId = (view.RemotoId ?? "").Trim();
+        var observacoes = (view.Observacoes ?? "").Trim();
+        var caminhoAnexo = view.CaminhoAnexo;
+
+        if (string.IsNullOrWhiteSpace(textoProblema))
             throw new InvalidOperationException("Indique o relato do problema técnico antes de enviar.");
 
-        if (string.IsNullOrWhiteSpace(view.Whatsapp))
+        if (string.IsNullOrWhiteSpace(whatsapp))
             throw new InvalidOperationException("Indique o número de WhatsApp.");
 
-        if (string.IsNullOrWhiteSpace(view.NomeContato))
+        if (string.IsNullOrWhiteSpace(nomeContato))
             throw new InvalidOperationException("Indique o nome de contacto.");
 
-        if (!view.AnyDeskNaoSeAplica && string.IsNullOrWhiteSpace(view.AnyDesk))
-            throw new InvalidOperationException("Indique o número do AnyDesk ou marque \"Não se aplica\".");
+        if (string.IsNullOrWhiteSpace(remotoId) && !anyDeskNaoSeAplica && string.IsNullOrWhiteSpace(anyDesk))
+            throw new InvalidOperationException("Indique o ID de Acesso Remoto SistecHUB, o número do AnyDesk ou marque \"Não se aplica\".");
 
         if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
             throw new InvalidOperationException("Configure o User token do GLPI em Configurações.");
@@ -369,13 +436,20 @@ public static class ChamadoParaGLPI
         if (!int.TryParse((settings.EntityId ?? "").Trim(), out var entityId))
             throw new InvalidOperationException("Indique um Id da entidade (client id) válido em Configurações.");
 
-        var problema = view.TextoProblema.Trim();
         Reportar(
             progress,
             GroqDisponivel(settings) ? "Criando título com IA…" : "A preparar título…");
-        var tituloBase = await GerarTituloChamadoAsync(problema, settings, cancellationToken).ConfigureAwait(false);
+        var tituloBase = await GerarTituloChamadoAsync(textoProblema, settings, cancellationToken).ConfigureAwait(false);
         var titulo = AplicarPrefixoTituloSistecHub(tituloBase);
-        var descricao = MontarDescricao(view, settings);
+        var descricao = MontarDescricao(
+            textoProblema,
+            whatsapp,
+            nomeContato,
+            anyDesk,
+            anyDeskNaoSeAplica,
+            remotoId,
+            observacoes,
+            settings);
 
         Reportar(progress, "A carregar categorias do GLPI…");
         var categoriasGlpi = await GlpiApiClient.GetItilCategoriesAsync(settings, cancellationToken).ConfigureAwait(false);
@@ -387,7 +461,7 @@ public static class ChamadoParaGLPI
             progress,
             categoriasElegiveisIa ? "Selecionando categoria com IA…" : "A processar categoria do chamado…");
         var categoriaItilId =
-            await ResolverCategoriaItilComIaAsync(problema, categoriasParaIa, settings, cancellationToken)
+            await ResolverCategoriaItilComIaAsync(textoProblema, categoriasParaIa, settings, cancellationToken)
                 .ConfigureAwait(false);
 
         Reportar(progress, "A localizar o requerente no GLPI…");
@@ -413,7 +487,6 @@ public static class ChamadoParaGLPI
                 cancellationToken)
             .ConfigureAwait(false);
 
-        var caminhoAnexo = view.CaminhoAnexo;
         if (!string.IsNullOrWhiteSpace(caminhoAnexo) && File.Exists(caminhoAnexo))
         {
             Reportar(progress, "A enviar anexo, aguarde o servidor…");

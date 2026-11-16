@@ -1,8 +1,9 @@
+using System.Windows.Forms.Integration;
 using SistecHub.UI;
 
 namespace SistecHub.Modulos.GLPI.Chamados;
 
-/// <summary>Janela modal com os termos de uso da abertura de chamados.</summary>
+/// <summary>Janela modal com os termos de uso da abertura de chamados (WPF).</summary>
 internal sealed class TermosDeUsoChamadosForm : Form
 {
     internal TermosDeUsoChamadosForm()
@@ -17,65 +18,27 @@ internal sealed class TermosDeUsoChamadosForm : Form
         BackColor = ShellTheme.MainBg;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
-        var body = new RichTextBox
+        var appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        if (appIcon is not null)
+            Icon = appIcon;
+
+        Win32Dwm.TryEnableRoundedCorners(this);
+
+        var wpfView = new TermosDeUsoWpfControl(TermosDeUsoChamadosTexto.Corpo);
+        wpfView.CloseRequested += (_, _) =>
+        {
+            DialogResult = DialogResult.OK;
+            Close();
+        };
+
+        var host = new ElementHost
         {
             Dock = DockStyle.Fill,
-            ReadOnly = true,
-            BorderStyle = BorderStyle.FixedSingle,
-            BackColor = Color.White,
-            ForeColor = ShellTheme.TextPrimary,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            DetectUrls = false,
-            ScrollBars = RichTextBoxScrollBars.Vertical,
-            Margin = new Padding(0, 0, 0, 12),
-            TabStop = false,
-        };
-        body.Text = TermosDeUsoChamadosTexto.Corpo;
-
-        var btnFechar = new Button
-        {
-            Text = "Fechar",
-            DialogResult = DialogResult.OK,
-            AutoSize = true,
-            Height = 36,
-            Padding = new Padding(20, 0, 20, 0),
-            FlatStyle = FlatStyle.Flat,
-            Cursor = Cursors.Hand,
-            BackColor = ShellTheme.Accent,
-            ForeColor = Color.White,
-            Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point),
-        };
-        btnFechar.FlatAppearance.BorderSize = 0;
-        btnFechar.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 82, 221);
-
-        var bottom = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Bottom,
-            FlowDirection = FlowDirection.RightToLeft,
-            Height = 48,
-            Padding = new Padding(0, 8, 0, 0),
-            WrapContents = false,
             BackColor = ShellTheme.MainBg,
+            Child = wpfView,
         };
-        bottom.Controls.Add(btnFechar);
 
-        AcceptButton = btnFechar;
-        CancelButton = btnFechar;
-
-        var root = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2,
-            Padding = new Padding(20, 16, 20, 12),
-            BackColor = ShellTheme.MainBg,
-        };
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48f));
-        root.Controls.Add(body, 0, 0);
-        root.Controls.Add(bottom, 0, 1);
-
-        Controls.Add(root);
+        Controls.Add(host);
     }
 }
 
@@ -145,11 +108,5 @@ O usuário reconhece que o fornecimento voluntário do número de telefone carac
 Ao utilizar o sistema de abertura de chamados, o usuário declara que leu, compreendeu e concorda integralmente com os presentes Termos de Uso.
 
 O aceite destes termos é obrigatório para a utilização do sistema e registro de solicitações.
-
-## 8. Atualização dos Termos
-
-A Sistec reserva-se o direito de atualizar estes Termos de Uso a qualquer momento, sempre que necessário, visando adequação às normas internas, procedimentos operacionais ou requisitos legais.
-
-As versões atualizadas passarão a vigorar a partir de sua publicação no sistema.
 """;
 }

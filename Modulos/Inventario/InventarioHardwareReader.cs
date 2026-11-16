@@ -45,7 +45,10 @@ internal sealed record DiscoRigidoInventario(
     string Saude,
     float? VidaPercent,
     float? ArmazenamentoTotalGb,
-    float? ArmazenamentoUsadoGb);
+    float? ArmazenamentoUsadoGb,
+    string? AlertaMotivo = null,
+    IReadOnlyList<string>? AlertaDetalhes = null,
+    int? TemperaturaC = null);
 
 /// <summary>Monitor físico (WMI EDID).</summary>
 internal sealed record MonitorInventario(
@@ -375,6 +378,9 @@ internal static class InventarioHardwareReader
         public string Nome { get; init; } = "";
         public float? LifePct { get; init; }
         public string Saude { get; init; } = "desconhecida";
+        public string? AlertaMotivo { get; init; }
+        public IReadOnlyList<string>? AlertaDetalhes { get; init; }
+        public int? TemperaturaC { get; init; }
         public float? TotalGb { get; init; }
         public string? Serial { get; init; }
         public string? Bus { get; init; }
@@ -419,11 +425,7 @@ internal static class InventarioHardwareReader
                 }
 
                 float? lifePct = d.Health is int h ? ClampLifePercent(h) : null;
-                var saude = MapDiskStatus(d.HealthStatus?.ToString());
-                if (saude == "desconhecida" && d.SmartAttributes is { Count: > 0 } attrs)
-                {
-                    saude = MapHddStatusFromToolkitAttributes(attrs);
-                }
+                var diagnosis = DiagnoseDiskHealth(d, lifePct);
 
                 float? totalGb = sizeBytes > 0
                     ? (float)Math.Round((double)sizeBytes.Value / (1024d * 1024d * 1024d), 2)
@@ -436,7 +438,10 @@ internal static class InventarioHardwareReader
                     Device = d,
                     Nome = model ?? "Disco",
                     LifePct = lifePct,
-                    Saude = saude,
+                    Saude = diagnosis.Saude,
+                    AlertaMotivo = diagnosis.AlertaMotivo,
+                    AlertaDetalhes = diagnosis.AlertaDetalhes,
+                    TemperaturaC = diagnosis.TemperaturaC,
                     TotalGb = totalGb,
                     Serial = serial,
                     Bus = d.BusType.ToString(),
@@ -486,6 +491,10 @@ internal static class InventarioHardwareReader
 
             float? life = null;
             var saude = "desconhecida";
+            string? alertaMotivo = null;
+            IReadOnlyList<string>? alertaDetalhes = null;
+            int? tempC = null;
+
             float? totalGb = wmi.SizeBytes > 0
                 ? (float)Math.Round(wmi.SizeBytes / (1024d * 1024d * 1024d), 2)
                 : null;
@@ -499,6 +508,9 @@ internal static class InventarioHardwareReader
                 var tk = toolkitDisks[bestIdx];
                 life = tk.LifePct;
                 saude = tk.Saude;
+                alertaMotivo = tk.AlertaMotivo;
+                alertaDetalhes = tk.AlertaDetalhes;
+                tempC = tk.TemperaturaC;
                 if (totalGb is null)
                     totalGb = tk.TotalGb;
                 if (string.IsNullOrEmpty(serial))
@@ -520,7 +532,10 @@ internal static class InventarioHardwareReader
                 saude,
                 life,
                 totalGb,
-                usedGb));
+                usedGb,
+                alertaMotivo,
+                alertaDetalhes,
+                tempC));
         }
 
         for (var i = 0; i < toolkitDisks.Count; i++)
@@ -539,49 +554,208 @@ internal static class InventarioHardwareReader
                 tk.Saude,
                 tk.LifePct,
                 tk.TotalGb,
-                usedGb));
+                usedGb,
+                tk.AlertaMotivo,
+                tk.AlertaDetalhes,
+                tk.TemperaturaC));
         }
 
         return result;
     }
 
+    sealed record DiskHealthDiagnosis(
+        string Saude,
+        string? AlertaMotivo,
+        IReadOnlyList<string>? AlertaDetalhes,
+        int? TemperaturaC);
+
     /// <summary>
-    /// Regra CrystalDiskInfo para HD: IDs 0x05, 0xC5 e 0xC6.
+    /// Diagnostica a saúde do disco, atributos S.M.A.R.T., desgaste de vida útil e temperatura,
+    /// extraindo o motivo principal e detalhes dos alertas quando houver.
     /// </summary>
-    static string MapHddStatusFromToolkitAttributes(IReadOnlyList<DiskInfoToolkit.Smart.SmartAttributeEntry>? attrs)
+    static DiskHealthDiagnosis DiagnoseDiskHealth(
+        DiskInfoToolkit.Devices.StorageDevice d,
+        float? lifePct)
     {
-        const string unknown = "desconhecida";
-        if (attrs is not { Count: > 0 })
-            return unknown;
+        var saudeRaw = MapDiskStatus(d.HealthStatus?.ToString());
+        var isFailure = saudeRaw == "falha" || d.PredictsFailure == true;
+        var isCaution = saudeRaw == "atencao";
+        var hasSmartAttributes = d.SmartAttributes is { Count: > 0 };
 
-        var error = 0;
-        var caution = 0;
-        var sawHealthAttr = false;
+        var motivosCurto = new List<string>();
+        var detalhes = new List<string>();
 
-        foreach (var sa in attrs)
+        int? tempC = d.Temperature is { } t ? Convert.ToInt32(t) : null;
+
+        // 1. Análise detalhada dos atributos S.M.A.R.T.
+        if (hasSmartAttributes)
         {
-            var id = sa.ID;
+            var attrs = d.SmartAttributes!;
+            foreach (var sa in attrs)
+            {
+                var id = sa.ID;
+                var raw = sa.RawValue;
+                var attrName = !string.IsNullOrWhiteSpace(sa.Name) ? sa.Name : sa.GetDisplayName();
 
-            if (IsHddFailureAttributeId(id) && sa.ThresholdValue != 0 && sa.CurrentValue < sa.ThresholdValue)
-                error++;
+                // 0x05 - Setores Realocados
+                if (id == 0x05 && raw > 0)
+                {
+                    isCaution = true;
+                    motivosCurto.Add($"{raw} setor{(raw > 1 ? "es" : "")} realocado{(raw > 1 ? "s" : "")} (0x05)");
+                    detalhes.Add($"0x05 - Reallocated Sectors Count: {raw} setor{(raw > 1 ? "es" : "")} realocado{(raw > 1 ? "s" : "")} (Atual: {sa.CurrentValue}, Limiar: {sa.ThresholdValue})");
 
-            if (id is not (0x05 or 0xC5 or 0xC6))
-                continue;
+                    if (sa.ThresholdValue > 0 && sa.CurrentValue <= sa.ThresholdValue)
+                    {
+                        isFailure = true;
+                    }
+                }
+                // 0xC5 - Setores Pendentes de Realocação
+                else if (id == 0xC5 && raw > 0)
+                {
+                    isCaution = true;
+                    motivosCurto.Add($"{raw} setor{(raw > 1 ? "es" : "")} pendente{(raw > 1 ? "s" : "")} (0xC5)");
+                    detalhes.Add($"0xC5 - Current Pending Sector Count: {raw} setor{(raw > 1 ? "es" : "")} pendente{(raw > 1 ? "s" : "")} de realocação (Atual: {sa.CurrentValue}, Limiar: {sa.ThresholdValue})");
 
-            sawHealthAttr = true;
-            if (sa.ThresholdValue > 0 && sa.RawValue >= sa.ThresholdValue)
-                caution++;
-            else if (sa.RawValue > 0)
-                caution++;
+                    if (sa.ThresholdValue > 0 && sa.CurrentValue <= sa.ThresholdValue)
+                    {
+                        isFailure = true;
+                    }
+                }
+                // 0xC6 - Setores Incorrigíveis (Offline Uncorrectable)
+                else if (id == 0xC6 && raw > 0)
+                {
+                    isCaution = true;
+                    motivosCurto.Add($"{raw} setor{(raw > 1 ? "es" : "")} incorrigível{(raw > 1 ? "eis" : "")} (0xC6)");
+                    detalhes.Add($"0xC6 - Uncorrectable Sector Count: {raw} setor{(raw > 1 ? "es" : "")} incorrigível{(raw > 1 ? "eis" : "")} (Atual: {sa.CurrentValue}, Limiar: {sa.ThresholdValue})");
+
+                    if (sa.ThresholdValue > 0 && sa.CurrentValue <= sa.ThresholdValue)
+                    {
+                        isFailure = true;
+                    }
+                }
+                // Limiares de falha ultrapassados (CurrentValue <= ThresholdValue)
+                else if (IsHddFailureAttributeId(id) && sa.ThresholdValue > 0 && sa.CurrentValue <= sa.ThresholdValue)
+                {
+                    isFailure = true;
+                    motivosCurto.Add($"Limiar crítico no atributo 0x{id:X2} ({attrName})");
+                    detalhes.Add($"0x{id:X2} - {attrName}: Limiar crítico atingido (Atual: {sa.CurrentValue}, Limiar: {sa.ThresholdValue}, Raw: {raw})");
+                }
+                // 0xBB - Reported Uncorrectable Errors
+                else if (id == 0xBB && raw > 0 && sa.ThresholdValue > 0 && sa.CurrentValue <= sa.ThresholdValue)
+                {
+                    isCaution = true;
+                    motivosCurto.Add($"{raw} erro{(raw > 1 ? "s" : "")} incorrigível{(raw > 1 ? "eis" : "")} (0xBB)");
+                    detalhes.Add($"0xBB - Reported Uncorrectable Errors: {raw} erro{(raw > 1 ? "s" : "")} reportado{(raw > 1 ? "s" : "")}");
+                }
+            }
         }
 
-        if (error > 0)
-            return "falha";
-        if (!sawHealthAttr)
-            return unknown;
-        if (caution > 0)
-            return "atencao";
-        return "saudavel";
+        // 2. Desgaste de Vida Útil (especialmente SSDs e NVMes)
+        if (lifePct is { } pct)
+        {
+            if (pct <= 5)
+            {
+                isFailure = true;
+                motivosCurto.Add($"Vida útil crítica ({pct:0.#}%)");
+                detalhes.Add($"Desgaste crítico da memória flash: vida útil restante em apenas {pct:0.#}%. Risco iminente de perda de dados.");
+            }
+            else if (pct <= 10)
+            {
+                isCaution = true;
+                motivosCurto.Add($"Vida útil baixa ({pct:0.#}%)");
+                detalhes.Add($"Vida útil da memória flash em nível de atenção: {pct:0.#}% restante. Recomenda-se planejamento de troca.");
+            }
+        }
+
+        // 3. Alertas de Temperatura
+        if (tempC is { } temp)
+        {
+            if (temp >= 70)
+            {
+                isFailure = true;
+                motivosCurto.Add($"Superaquecimento ({temp}°C)");
+                detalhes.Add($"Superaquecimento operacional: disco operando a {temp}°C (limite de segurança excedido).");
+            }
+            else if (temp >= 58)
+            {
+                isCaution = true;
+                motivosCurto.Add($"Temperatura alta ({temp}°C)");
+                detalhes.Add($"Temperatura operacional elevada: disco operando a {temp}°C.");
+            }
+        }
+
+        // 4. Previsão de falha S.M.A.R.T. nativa
+        if (d.PredictsFailure == true)
+        {
+            isFailure = true;
+            if (!motivosCurto.Any(m => m.Contains("falha", StringComparison.OrdinalIgnoreCase)))
+            {
+                motivosCurto.Add("Previsão de falha iminente (S.M.A.R.T.)");
+                detalhes.Add("O controlador do disco disparou a flag 'PredictsFailure' do S.M.A.R.T.");
+            }
+        }
+
+        // 5. Motivo reportado nativamente pelo DiskInfoToolkit
+        if (!string.IsNullOrWhiteSpace(d.HealthStatusReason))
+        {
+            var lines = d.HealthStatusReason.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var line in lines)
+            {
+                if (!string.IsNullOrWhiteSpace(line) && !detalhes.Any(x => x.Contains(line, StringComparison.OrdinalIgnoreCase)))
+                {
+                    detalhes.Add(line);
+                }
+            }
+        }
+
+        // Determinação do status final
+        string finalSaude;
+        if (isFailure)
+            finalSaude = "falha";
+        else if (isCaution)
+            finalSaude = "atencao";
+        else if (saudeRaw == "saudavel")
+            finalSaude = "saudavel";
+        else if (hasSmartAttributes)
+            finalSaude = "saudavel";
+        else
+            finalSaude = saudeRaw;
+
+        string? alertaMotivo = null;
+        IReadOnlyList<string>? alertaDetalhes = null;
+
+        if (finalSaude is "atencao" or "falha")
+        {
+            if (motivosCurto.Count > 0)
+            {
+                alertaMotivo = string.Join(", ", motivosCurto.Distinct());
+            }
+            else if (detalhes.Count > 0)
+            {
+                alertaMotivo = detalhes[0];
+            }
+            else if (!string.IsNullOrWhiteSpace(d.HealthStatusReason))
+            {
+                alertaMotivo = d.HealthStatusReason.Trim();
+            }
+            else
+            {
+                alertaMotivo = finalSaude == "falha"
+                    ? "Falha iminente detectada pelos parâmetros S.M.A.R.T."
+                    : "Parâmetros S.M.A.R.T. em estado de alerta";
+            }
+
+            if (detalhes.Count > 0)
+            {
+                alertaDetalhes = detalhes.Distinct().ToList();
+            }
+            else if (!string.IsNullOrWhiteSpace(alertaMotivo))
+            {
+                alertaDetalhes = new List<string> { alertaMotivo };
+            }
+        }
+
+        return new DiskHealthDiagnosis(finalSaude, alertaMotivo, alertaDetalhes, tempC);
     }
 
     static bool IsHddFailureAttributeId(byte id) =>

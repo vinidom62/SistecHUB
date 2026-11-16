@@ -16,7 +16,7 @@ public static class InteractiveUserAppLauncher
     const int TokenPrimary = 1;
     const uint CreateUnicodeEnvironment = 0x00000400;
 
-    public static bool TryLaunchMainAppInActiveSession(string? reason = null)
+    public static bool TryLaunchMainAppInActiveSession(string? reason = null, bool forceMinimized = false)
     {
         if (!OperatingSystem.IsWindows())
             return false;
@@ -72,8 +72,10 @@ public static class InteractiveUserAppLauncher
 
                         var processInfo = default(PROCESS_INFORMATION);
                         var settings = AppSettingsStore.Load();
-                        var autostartFlag = settings.IniciarMinimizado ? " --autostart" : "";
-                        var commandLine = $"\"{exePath}\"{autostartFlag}";
+                        var launchFlag = forceMinimized
+                            ? " -minimized"
+                            : (settings.IniciarMinimizado ? " --autostart" : "");
+                        var commandLine = $"\"{exePath}\"{launchFlag}";
                         var workingDirectory = Path.GetDirectoryName(exePath)!;
                         var creationFlags = environment != IntPtr.Zero ? CreateUnicodeEnvironment : 0u;
 

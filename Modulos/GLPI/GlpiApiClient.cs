@@ -219,6 +219,17 @@ public static class GlpiApiClient
                     http, apiRoot, appToken, session, hostname, entidade, macadress, utilizadorDominio, ct),
             cancellationToken);
 
+    /// <summary>Consulta dados de acesso remoto da máquina no GLPI (ID fixo e credenciais de acesso não supervisionado).</summary>
+    public static Task<GlpiRemoteAccessInfo?> GetMachineRemoteAccessAsync(
+        AppUserSettings settings,
+        int machineId,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithGlpiSessionAsync(
+            settings,
+            (http, apiRoot, appToken, session, ct) =>
+                GetMachineRemoteAccessCoreAsync(http, apiRoot, appToken, session, machineId, ct),
+            cancellationToken);
+
     /// <summary>Obtém o <c>id</c> do utilizador GLPI pelo login (<c>glpi_users.name</c>).</summary>
     public static Task<int?> GetUserIdByLoginAsync(
         AppUserSettings settings,
@@ -606,6 +617,52 @@ public static class GlpiApiClient
 
         ThrowIfGlpiError(body, resp.IsSuccessStatusCode, (int)resp.StatusCode, "registar máquina (plugin)");
         return ParseCreatedIdFromBody(body, "PluginSistechubMachine");
+    }
+
+    static async Task<GlpiRemoteAccessInfo?> GetMachineRemoteAccessCoreAsync(
+        HttpClient http,
+        string apiRoot,
+        string appToken,
+        string sessionToken,
+        int machineId,
+        CancellationToken cancellationToken)
+    {
+        if (machineId <= 0)
+            return null;
+
+        var url = $"{apiRoot}/PluginSistechubMachine/{machineId}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("App-Token", appToken);
+        req.Headers.TryAddWithoutValidation("Session-Token", sessionToken);
+
+        using var resp = await http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+            return null;
+
+        var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement.TryGetProperty("data", out var data) ? data : doc.RootElement;
+            var rId = root.TryGetProperty("remoto_id", out var rProp) ? rProp.GetString() ?? "" : "";
+            var uPwd = root.TryGetProperty("unattended_password", out var pProp) ? pProp.GetString() ?? "" : "";
+            var hTok = root.TryGetProperty("host_token", out var hProp) ? hProp.GetString() ?? "" : "";
+            var uEn = false;
+            if (root.TryGetProperty("unattended_enabled", out var eProp))
+            {
+                if (eProp.ValueKind == JsonValueKind.True || eProp.ValueKind == JsonValueKind.False)
+                    uEn = eProp.GetBoolean();
+                else if (eProp.ValueKind == JsonValueKind.Number)
+                    uEn = eProp.GetInt32() == 1;
+                else if (eProp.ValueKind == JsonValueKind.String)
+                    uEn = eProp.GetString() == "1" || string.Equals(eProp.GetString(), "true", StringComparison.OrdinalIgnoreCase);
+            }
+            return new GlpiRemoteAccessInfo(rId, uPwd, uEn, hTok);
+        }
+        catch
+        {
+        }
+        return null;
     }
 
     static string? TryExtractGroqApiKeyFromPluginJson(string body)
@@ -1514,3 +1571,5 @@ public static class GlpiApiClient
     static void AddJsonContentType(HttpRequestMessage req) =>
         req.Headers.TryAddWithoutValidation("Content-Type", "application/json");
 }
+
+public sealed record GlpiRemoteAccessInfo(string RemotoId, string UnattendedPassword, bool UnattendedEnabled, string HostToken = "");

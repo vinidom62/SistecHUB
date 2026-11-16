@@ -1,3 +1,5 @@
+using SistecHub.Modulos.AcessoRemoto;
+
 namespace SistecHub.Core;
 
 /// <summary>Verificação e instalação de actualizações via serviço Windows (instalação MSI).</summary>
@@ -5,9 +7,14 @@ public static class AppUpdateService
 {
     static readonly object NotifySync = new();
     static string? _notifiedVersion;
+    static string? _deferredRemoteVersion;
     static bool _monitorRunning;
+    static bool _manualDialogOpen;
+    static bool _applySignaled;
+    static bool _sessionEndedSubscribed;
+    static IWin32Window? _monitoredOwner;
 
-    /// <summary>Disparado para reiniciar o app (após contagem regressiva ou «Reiniciar agora»).</summary>
+    /// <summary>Disparado para reiniciar o app (após contagem regressiva de 10s ou «Reiniciar Agora»).</summary>
     public static event Action? UpdateRestartRequested;
 
     public static bool IsUpdateSupported => VelopackUpdateEngine.IsInstalled;
@@ -20,60 +27,135 @@ public static class AppUpdateService
         return statusText + Environment.NewLine + $"Log: {UpdateActivityLog.LogFilePath}";
     }
 
-    /// <summary>Verificação automática ao abrir o aplicativo.</summary>
+    /// <summary>Verificação automática ao abrir o aplicativo e monitoramento contínuo a cada 30s.</summary>
     public static void BeginAutomaticUpdateMonitoring(IWin32Window? owner)
     {
         if (!IsUpdateSupported)
             return;
 
+        _monitoredOwner = owner;
+
+        lock (NotifySync)
+        {
+            if (!_sessionEndedSubscribed)
+            {
+                _sessionEndedSubscribed = true;
+                AcessoRemotoAgentService.SessionEnded += OnRemoteSessionEnded;
+            }
+        }
+
         UpdateActivityLog.Info("Update", "Verificação automática solicitada.");
-        UpdateServiceCoordinator.RequestImmediateCheck();
-        StartBackgroundMonitor(owner, manualFlow: false);
+        UpdateServiceCoordinator.RequestImmediateCheck(resetStatus: false);
+        StartBackgroundMonitor(owner);
+    }
+
+    static void OnRemoteSessionEnded(object? sender, EventArgs e)
+    {
+        if (!IsUpdateSupported || !IsUpdateReadyToApply())
+            return;
+
+        UpdateActivityLog.Info("Update", "Sessão de suporte remoto encerrada — a retomar aplicação da atualização pendente.");
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(800).ConfigureAwait(false);
+            PromptRestartForUpdateIfNeeded(_monitoredOwner);
+        });
     }
 
     /// <summary>Verificação manual iniciada nas Configurações (releases estáveis).</summary>
-    public static async Task CheckForUpdatesManuallyAsync(
+    public static Task CheckForUpdatesManuallyAsync(
         IWin32Window? owner,
-        CancellationToken cancellationToken = default)
-    {
-        if (!IsUpdateSupported)
-        {
-            MessageBox.Show(
-                owner,
-                "Atualizações só estão disponíveis na instalação MSI (Program Files).",
-                "Verificar atualizações",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            return;
-        }
-
-        UpdateActivityLog.Info("Update", "Utilizador clicou em «Verificar atualizações».");
-        UpdateServiceCoordinator.RequestImmediateCheck();
-        await WaitForCheckResultAsync(owner, includePrerelease: false, cancellationToken).ConfigureAwait(true);
-    }
+        CancellationToken cancellationToken = default) =>
+        RunManualUpdateDialogAsync(owner, includePrerelease: false, cancellationToken);
 
     /// <summary>Verificação manual de pré-releases — nunca usada pela verificação automática.</summary>
-    public static async Task CheckForBetaUpdatesManuallyAsync(
+    public static Task CheckForBetaUpdatesManuallyAsync(
         IWin32Window? owner,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        RunManualUpdateDialogAsync(owner, includePrerelease: true, cancellationToken);
+
+    static Task RunManualUpdateDialogAsync(
+        IWin32Window? owner,
+        bool includePrerelease,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!IsUpdateSupported)
         {
             MessageBox.Show(
                 owner,
                 "Atualizações só estão disponíveis na instalação MSI (Program Files).",
-                "Verificar atualização Beta",
+                includePrerelease ? "Verificar atualização Beta" : "Verificar atualizações",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
-            return;
+            return Task.CompletedTask;
         }
 
-        UpdateActivityLog.Info("Update", "Utilizador clicou em «Verificar atualização Beta».");
-        UpdateServiceCoordinator.RequestImmediateBetaCheck();
-        await WaitForCheckResultAsync(owner, includePrerelease: true, cancellationToken).ConfigureAwait(true);
+        if (IsRemoteSupportSessionActive())
+        {
+            MessageBox.Show(
+                owner,
+                "Há uma sessão de suporte remoto em andamento.\n\nAguarde o término do atendimento antes de verificar ou aplicar atualizações.",
+                includePrerelease ? "Verificar atualização Beta" : "Verificar atualizações",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return Task.CompletedTask;
+        }
+
+        UpdateActivityLog.Info(
+            "Update",
+            includePrerelease
+                ? "Utilizador clicou em «Verificar atualização Beta»."
+                : "Utilizador clicou em «Verificar atualizações».");
+
+        lock (NotifySync)
+        {
+            if (_manualDialogOpen)
+                return Task.CompletedTask;
+            _manualDialogOpen = true;
+        }
+
+        try
+        {
+            using var dlg = new SistecHub.UI.UpdateProgressForm(includePrerelease);
+            ShowDialogSafely(dlg, owner);
+
+            if (dlg.RestartConfirmed)
+            {
+                if (IsRemoteSupportSessionActive())
+                {
+                    lock (NotifySync)
+                    {
+                        _deferredRemoteVersion = dlg.TargetVersion;
+                        _notifiedVersion = null;
+                    }
+                    UpdateActivityLog.Info("Update", $"Sessão remota ativa ao concluir verificação manual da versão {dlg.TargetVersion} — reinício adiado para o fim do atendimento.");
+                    return Task.CompletedTask;
+                }
+
+                lock (NotifySync)
+                {
+                    if (!string.IsNullOrWhiteSpace(dlg.TargetVersion))
+                        _notifiedVersion = dlg.TargetVersion;
+                }
+
+                SignalApplyOnExit(showProgressWindowOverride: true);
+                UpdateRestartRequested?.Invoke();
+            }
+        }
+        finally
+        {
+            lock (NotifySync)
+            {
+                _manualDialogOpen = false;
+            }
+        }
+
+        return Task.CompletedTask;
     }
 
-    static void StartBackgroundMonitor(IWin32Window? owner, bool manualFlow)
+    static void StartBackgroundMonitor(IWin32Window? owner)
     {
         lock (NotifySync)
         {
@@ -86,17 +168,11 @@ public static class AppUpdateService
         {
             try
             {
-                await MonitorUntilSettledAsync(
-                        owner,
-                        manualFlow,
-                        includePrerelease: false,
-                        TimeSpan.FromMinutes(10),
-                        CancellationToken.None)
-                    .ConfigureAwait(false);
+                await RunContinuousMonitorLoopAsync(owner).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                UpdateActivityLog.LogException("Update", ex, "Monitor automático de actualização falhou.");
+                UpdateActivityLog.LogException("Update", ex, "Monitor contínuo de actualização falhou.");
             }
             finally
             {
@@ -106,133 +182,108 @@ public static class AppUpdateService
         });
     }
 
-    static async Task WaitForCheckResultAsync(
-        IWin32Window? owner,
-        bool includePrerelease,
-        CancellationToken cancellationToken)
+    static async Task RunContinuousMonitorLoopAsync(IWin32Window? owner)
     {
-        var title = includePrerelease ? "Verificar atualização Beta" : "Verificar atualizações";
-        var result = await MonitorUntilSettledAsync(
-                owner,
-                manualFlow: true,
-                includePrerelease,
-                TimeSpan.FromMinutes(3),
-                cancellationToken)
-            .ConfigureAwait(true);
+        UpdateServicePhase? lastPhase = UpdateServiceCoordinator.TryReadStatus()?.Phase;
+        var startupFastCheckUntil = DateTime.UtcNow.AddMinutes(2);
 
-        if (result == MonitorResult.TimedOut)
+        // Fase inicial rápida após abertura do app (verifica a cada 3s nos primeiros 2 minutos)
+        while (DateTime.UtcNow < startupFastCheckUntil)
         {
-            MessageBox.Show(
-                owner,
-                "A verificação demorou demais.\n\n"
-                + "Confirme que «SistecHub Service» está em execução.\n\n"
-                + "Log: " + UpdateActivityLog.LogFilePath,
-                title,
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+            await Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+            CheckBackgroundStatusOnce(owner, ref lastPhase);
+
+            var status = UpdateServiceCoordinator.TryReadStatus();
+            if (status?.Phase is UpdateServicePhase.UpToDate or UpdateServicePhase.Completed)
+                break;
+        }
+
+        // Monitoramento contínuo em background a cada 30 segundos enquanto o app estiver aberto
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        while (await timer.WaitForNextTickAsync().ConfigureAwait(false))
+        {
+            CheckBackgroundStatusOnce(owner, ref lastPhase);
         }
     }
 
-    enum MonitorResult
+    static void CheckBackgroundStatusOnce(IWin32Window? owner, ref UpdateServicePhase? lastPhase)
     {
-        Settled,
-        TimedOut,
-    }
-
-    static async Task<MonitorResult> MonitorUntilSettledAsync(
-        IWin32Window? owner,
-        bool manualFlow,
-        bool includePrerelease,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        UpdateServicePhase? lastPhase = UpdateServiceCoordinator.TryReadStatus()?.Phase;
-        var deadline = DateTime.UtcNow + timeout;
-        var title = includePrerelease ? "Verificar atualização Beta" : "Verificar atualizações";
-
-        while (DateTime.UtcNow < deadline)
+        var status = UpdateServiceCoordinator.TryReadStatus();
+        if (status is not null && status.Phase != lastPhase)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-
-            var status = UpdateServiceCoordinator.TryReadStatus();
-            if (status?.Phase != lastPhase && status is not null)
-            {
-                UpdateActivityLog.Info("Update", $"Progresso: {status.Phase} — {status.Message}");
-                lastPhase = status.Phase;
-            }
-
-            if (IsUpdateReadyToApply())
-            {
-                PromptRestartForUpdateIfNeeded(owner);
-                return MonitorResult.Settled;
-            }
-
-            if (status?.Phase == UpdateServicePhase.UpToDate)
-            {
-                if (manualFlow)
-                {
-                    var message = includePrerelease
-                        ? $"Não há pré-releases mais recentes.\nVersão actual: {DisplayVersion}."
-                        : $"O SistecHub já está na versão mais recente ({DisplayVersion}).";
-                    MessageBox.Show(
-                        owner,
-                        message,
-                        title,
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information);
-                }
-
-                return MonitorResult.Settled;
-            }
-
-            if (status?.Phase == UpdateServicePhase.Error)
-            {
-                if (manualFlow)
-                {
-                    MessageBox.Show(
-                        owner,
-                        status.Message + "\n\nDetalhes em:\n" + UpdateActivityLog.LogFilePath,
-                        title,
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-                }
-
-                return MonitorResult.Settled;
-            }
+            UpdateActivityLog.Info("Update", $"Progresso em background: {status.Phase} — {status.Message}");
+            lastPhase = status.Phase;
         }
 
         if (IsUpdateReadyToApply())
         {
             PromptRestartForUpdateIfNeeded(owner);
-            return MonitorResult.Settled;
         }
-
-        return manualFlow ? MonitorResult.TimedOut : MonitorResult.Settled;
     }
 
-    static bool IsUpdateReadyToApply() =>
-        VelopackUpdateEngine.PendingRestart is not null
-        || UpdateServiceCoordinator.TryReadStatus()?.Phase == UpdateServicePhase.PendingAppClose;
+    public static bool IsUpdateReadyToApply()
+    {
+        if (VelopackUpdateEngine.PendingRestart is { } pending)
+        {
+            var pendingVer = pending.Version.ToString();
+            if (!string.Equals(pendingVer, DisplayVersion, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        var status = UpdateServiceCoordinator.TryReadStatus();
+        if (status?.Phase == UpdateServicePhase.PendingAppClose)
+        {
+            if (string.IsNullOrWhiteSpace(status.AvailableVersion)
+                || !string.Equals(status.AvailableVersion, DisplayVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     static void PromptRestartForUpdateIfNeeded(IWin32Window? owner)
     {
         var version = VelopackUpdateEngine.PendingRestart?.Version.ToString()
             ?? UpdateServiceCoordinator.TryReadStatus()?.AvailableVersion;
 
-        if (string.IsNullOrWhiteSpace(version))
+        if (string.IsNullOrWhiteSpace(version)
+            || string.Equals(version, DisplayVersion, StringComparison.OrdinalIgnoreCase))
+        {
             return;
+        }
+
+        // Protege sessões ativas de suporte remoto — não derruba o atendimento em andamento
+        if (IsRemoteSupportSessionActive())
+        {
+            lock (NotifySync)
+            {
+                if (!string.Equals(_deferredRemoteVersion, version, StringComparison.Ordinal))
+                {
+                    _deferredRemoteVersion = version;
+                    UpdateActivityLog.Info(
+                        "Update",
+                        $"Atualização {version} pronta, mas há uma sessão de suporte remoto ativa. O reinício aguarda o término do suporte.");
+                }
+            }
+            return;
+        }
 
         lock (NotifySync)
         {
+            if (_manualDialogOpen)
+                return;
+
             if (string.Equals(_notifiedVersion, version, StringComparison.Ordinal))
                 return;
             _notifiedVersion = version;
+            _deferredRemoteVersion = null;
         }
 
-        UpdateActivityLog.Info("Update", $"Actualização {version} pronta.");
+        UpdateActivityLog.Info("Update", $"Actualização {version} pronta para aplicação.");
 
-        var targetWindow = owner ?? Form.ActiveForm ?? (Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null);
+        var targetWindow = ResolveMainForm(owner);
 
         if (targetWindow is Control { InvokeRequired: true } control)
         {
@@ -248,21 +299,54 @@ public static class AppUpdateService
     {
         try
         {
-            // O aviso de 10s só é exibido se o SistecHub estiver aberto e visível na tela.
-            // Se estiver em segundo plano (minimizado na barra ou no tabuleiro), aplica sem exibir nada.
-            if (IsWindowVisibleOnScreen(owner))
+            if (IsRemoteSupportSessionActive())
             {
-                UpdateActivityLog.Info("Update", $"SistecHub aberto na tela — a mostrar contagem regressiva de 10s para versão {version}.");
-                using var countdown = new SistecHub.UI.UpdateCountdownForm(version, seconds: 10);
-                countdown.ShowDialog(owner);
-                UpdateActivityLog.Info("Update", "Contagem regressiva concluída — reinício para aplicar actualização.");
+                lock (NotifySync)
+                {
+                    if (string.Equals(_notifiedVersion, version, StringComparison.Ordinal))
+                        _notifiedVersion = null;
+                }
+                UpdateActivityLog.Info("Update", $"Sessão remota iniciada antes do aviso da versão {version} — reinício adiado até o término do suporte.");
+                return;
+            }
+
+            // Regra de exibição:
+            // - Se o SistecHub estiver aberto na tela OU minimizado na barra de tarefas (form.Visible == true):
+            //   Exibe a janela com aviso de download concluído, 10 segundos de leitura e botão [Reiniciar Agora],
+            //   e em seguida o Watcher exibe a tela "Aplicando arquivos..." durante a cópia.
+            // - Se o SistecHub estiver oculto na bandeja do sistema (System Tray, form.Visible == false):
+            //   Atualiza e reinicia de forma 100% discreta sem exibir nenhuma janela.
+            var showUi = IsWindowOpenOrInTaskbar(owner);
+
+            if (showUi)
+            {
+                UpdateActivityLog.Info(
+                    "Update",
+                    $"SistecHub aberto ou minimizado na barra de tarefas — a mostrar aviso de 10s para versão {version}.");
+                using var progressForm = new SistecHub.UI.UpdateProgressForm(readyVersion: version, countdownSeconds: 10);
+                ShowDialogSafely(progressForm, owner);
+
+                if (IsRemoteSupportSessionActive())
+                {
+                    lock (NotifySync)
+                    {
+                        _deferredRemoteVersion = version;
+                        _notifiedVersion = null;
+                    }
+                    UpdateActivityLog.Info("Update", $"Sessão remota iniciada durante o aviso da versão {version} — reinício adiado para o fim do atendimento.");
+                    return;
+                }
+
+                UpdateActivityLog.Info("Update", "Contagem regressiva de 10s concluída — a reiniciar para aplicar actualização.");
             }
             else
             {
-                UpdateActivityLog.Info("Update", $"SistecHub em segundo plano (minimizado ou oculto) — a reiniciar silenciosamente para aplicar actualização {version}.");
+                UpdateActivityLog.Info(
+                    "Update",
+                    $"SistecHub oculto na bandeja do sistema (System Tray) — a atualizar de forma discreta para versão {version}.");
             }
 
-            SignalApplyOnExit();
+            SignalApplyOnExit(showProgressWindowOverride: showUi);
             UpdateRestartRequested?.Invoke();
         }
         catch (Exception ex)
@@ -271,21 +355,79 @@ public static class AppUpdateService
         }
     }
 
-    static bool IsWindowVisibleOnScreen(IWin32Window? window)
+    static void ShowDialogSafely(Form dialog, IWin32Window? owner)
     {
-        if (window is Form form)
+        var formOwner = ResolveMainForm(owner) as Form;
+        if (formOwner is not null && !formOwner.IsDisposed && formOwner.Visible && formOwner.WindowState != FormWindowState.Minimized)
+        {
+            dialog.ShowDialog(formOwner);
+        }
+        else
+        {
+            dialog.ShowDialog();
+        }
+    }
+
+    static bool IsRemoteSupportSessionActive()
+    {
+        try
+        {
+            return AcessoRemotoAgentService.GetSnapshot().IsSessionActive;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static IWin32Window? ResolveMainForm(IWin32Window? candidate)
+    {
+        if (candidate is Form f && !f.IsDisposed)
+            return f;
+
+        if (candidate is Control c && !c.IsDisposed)
+        {
+            var parent = c.FindForm();
+            if (parent is not null && !parent.IsDisposed)
+                return parent;
+        }
+
+        if (_monitoredOwner is Form mf && !mf.IsDisposed)
+            return mf;
+
+        if (Application.OpenForms.Count > 0)
+        {
+            foreach (Form openForm in Application.OpenForms)
+            {
+                if (openForm is SistecHub.UI.MainForm && !openForm.IsDisposed)
+                    return openForm;
+            }
+            return Application.OpenForms[0];
+        }
+
+        return candidate;
+    }
+
+    /// <summary>
+    /// Retorna <c>true</c> se a janela do SistecHub estiver aberta na tela OU minimizada na barra de tarefas
+    /// (<c>form.Visible == true</c>). Retorna <c>false</c> se estiver oculta na bandeja do sistema (System Tray).
+    /// </summary>
+    public static bool IsWindowOpenOrInTaskbar(IWin32Window? window)
+    {
+        var resolved = ResolveMainForm(window);
+
+        if (resolved is Form form)
         {
             return !form.IsDisposed
                 && form.Visible
-                && form.WindowState != FormWindowState.Minimized
                 && form.Opacity > 0;
         }
 
-        if (window is Control control)
+        if (resolved is Control control)
         {
             var parentForm = control.FindForm();
             if (parentForm is not null)
-                return IsWindowVisibleOnScreen(parentForm);
+                return IsWindowOpenOrInTaskbar(parentForm);
 
             return !control.IsDisposed && control.Visible;
         }
@@ -293,18 +435,29 @@ public static class AppUpdateService
         return false;
     }
 
-    /// <summary>Chamado ao fechar o app quando há update pendente — o serviço instala em silêncio.</summary>
-    public static void SignalApplyOnExit()
+    /// <summary>Chamado ao fechar o app quando há update pendente — o serviço instala e o watcher relança na sessão do utilizador.</summary>
+    public static void SignalApplyOnExit(bool? showProgressWindowOverride = null)
     {
         if (!IsUpdateSupported || !IsUpdateReadyToApply())
             return;
 
+        lock (NotifySync)
+        {
+            if (_applySignaled)
+                return;
+            _applySignaled = true;
+        }
+
         var version = VelopackUpdateEngine.PendingRestart?.Version.ToString()
             ?? UpdateServiceCoordinator.TryReadStatus()?.AvailableVersion;
 
-        UserSessionUpdateWatcher.LaunchWatcherProcess(version);
-        UpdateServiceCoordinator.RequestReopenAppAfterUpdate(version);
-        UpdateServiceCoordinator.RequestInstall();
-        UpdateActivityLog.Info("Update", "App a fechar — actualização será aplicada pelo serviço e relançada na sessão do utilizador.");
+        var showProgressWindow = showProgressWindowOverride ?? IsWindowOpenOrInTaskbar(_monitoredOwner);
+
+        UpdateServiceCoordinator.RequestReopenAppAfterUpdate(version, startMinimized: !showProgressWindow);
+        UpdateServiceCoordinator.RequestInstall(version);
+        UserSessionUpdateWatcher.LaunchWatcherProcess(version, showProgressWindow);
+        UpdateActivityLog.Info(
+            "Update",
+            $"App a fechar — actualização ({version}) será aplicada pelo serviço e relançada na sessão do utilizador (showProgressWindow={showProgressWindow}).");
     }
 }

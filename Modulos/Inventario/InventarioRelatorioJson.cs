@@ -100,6 +100,18 @@ internal sealed class DiscoRigidoRelatorioJson
     [JsonPropertyName("saude")]
     public string Saude { get; init; } = "desconhecida";
 
+    [JsonPropertyName("alerta_motivo")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AlertaMotivo { get; init; }
+
+    [JsonPropertyName("alerta_detalhes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? AlertaDetalhes { get; init; }
+
+    [JsonPropertyName("temperatura_c")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TemperaturaC { get; init; }
+
     [JsonPropertyName("vida_percent")]
     public float? VidaPercent { get; init; }
 
@@ -147,6 +159,13 @@ internal sealed class AcessoRemotoRelatorioJson
 {
     [JsonPropertyName("anydesk_id")]
     public string? AnydeskId { get; init; }
+
+    [JsonPropertyName("remoto_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RemotoId { get; init; }
+
+    [JsonPropertyName("unattended_enabled")]
+    public bool UnattendedEnabled { get; init; }
 }
 
 internal sealed class PostoTrabalhoRelatorioJson
@@ -280,6 +299,9 @@ internal sealed class InventarioRelatorioJson
                     Tipo = d.Tipo,
                     NumeroSerie = d.NumeroSerie,
                     Saude = d.Saude,
+                    AlertaMotivo = d.AlertaMotivo,
+                    AlertaDetalhes = d.AlertaDetalhes,
+                    TemperaturaC = d.TemperaturaC,
                     VidaPercent = d.VidaPercent,
                     ArmazenamentoTotalGb = d.ArmazenamentoTotalGb,
                     ArmazenamentoUsadoGb = d.ArmazenamentoUsadoGb,
@@ -328,6 +350,8 @@ internal sealed class InventarioRelatorioJson
             AcessoRemoto = new AcessoRemotoRelatorioJson
             {
                 AnydeskId = NormalizeAnydeskId(snapshot.AcessoRemoto.AnyDeskId),
+                RemotoId = AppSettingsStore.EnsureRemotoId(AppSettingsStore.Load()),
+                UnattendedEnabled = !string.IsNullOrWhiteSpace(AppSettingsStore.Load().RemotoUnattendedPassword),
             },
             SistecHub = new SistecHubRelatorioJson
             {

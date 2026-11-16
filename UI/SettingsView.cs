@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows.Forms.Integration;
 using SistecHub.Core;
 using SistecHub.Modulos.GLPI;
 using SistecHub.Modulos.Inventario;
@@ -7,310 +8,37 @@ namespace SistecHub.UI;
 
 internal sealed class SettingsView : UserControl
 {
-    const string LockGlyph = "\uE72E";
-    const string UnlockGlyph = "\uE785";
-
-    readonly ComboBox _entityComboBox;
-    readonly TextBox _glpiUserTokenTextBox;
-    readonly TextBox _glpiMachineIdTextBox;
-    readonly Label _machineIdLockButton;
-    readonly Label _updateStatusLabel;
-    readonly Button _checkUpdateButton;
-    readonly Button _checkBetaUpdateButton;
-    readonly Button _enviarInventarioBtn;
-    readonly CheckBox _iniciarMinimizadoCheckBox;
-    readonly Button _saveButton;
-    readonly Label _feedbackLabel;
-
+    readonly SettingsWpfControl _wpfView;
     int _persistedEntityId;
     bool _machineIdUnlocked;
 
     public SettingsView()
     {
         BackColor = ShellTheme.MainBg;
-        Padding = new Padding(40, 36, 40, 36);
+        Padding = new Padding(0);
 
-        var stack = new FlowLayoutPanel
+        _wpfView = new SettingsWpfControl();
+        _wpfView.InitializeHeaderInfo(
+            AppUpdateService.DisplayVersion,
+            AppUpdateService.GetUpdateStatusText(),
+            AppUpdateService.IsUpdateSupported);
+
+        _wpfView.CheckUpdateClicked += async (_, _) => await OnCheckUpdateClickedAsync(includePrerelease: false);
+        _wpfView.CheckBetaUpdateClicked += async (_, _) => await OnCheckUpdateClickedAsync(includePrerelease: true);
+        _wpfView.ExportJsonClicked += (_, _) => _ = ExportRelatorioJsonAsync();
+        _wpfView.EnviarInventarioClicked += (_, _) => _ = EnviarInventarioServidorAsync();
+        _wpfView.MachineIdLockClicked += (_, _) => OnMachineIdLockClicked();
+        _wpfView.BloqueioRemotoClicked += (_, _) => OnBloqueioRemotoClicked();
+        _wpfView.SaveClicked += async (_, _) => await OnSaveClickedAsync();
+
+        var host = new ElementHost
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoScroll = true,
-            BackColor = Color.Transparent,
-            Padding = new Padding(0),
+            BackColor = ShellTheme.MainBg,
+            Child = _wpfView,
         };
 
-        var title = new Label
-        {
-            Text = "Configurações",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 18F, FontStyle.Bold, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 24),
-        };
-
-        stack.Controls.Add(title);
-
-        var versionLabel = new Label
-        {
-            Text = $"Versão: {AppUpdateService.DisplayVersion}",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextMuted,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 16),
-        };
-        stack.Controls.Add(versionLabel);
-
-        _updateStatusLabel = new Label
-        {
-            Text = AppUpdateService.GetUpdateStatusText(),
-            AutoSize = true,
-            MaximumSize = new Size(400, 0),
-            Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextMuted,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 16),
-        };
-        stack.Controls.Add(_updateStatusLabel);
-
-        if (!AppUpdateService.IsUpdateSupported)
-        {
-            stack.Controls.Add(new Label
-            {
-                Text = "Atualizações indisponíveis — use a instalação MSI.",
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point),
-                ForeColor = ShellTheme.TextMuted,
-                BackColor = Color.Transparent,
-                Margin = new Padding(0, 0, 0, 16),
-            });
-        }
-
-        var updateBtnRow = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 16),
-        };
-
-        _checkUpdateButton = new Button
-        {
-            Text = "Verificar atualizações",
-            AutoSize = true,
-            Height = 36,
-            Padding = new Padding(16, 0, 16, 0),
-            Margin = new Padding(0, 0, 8, 8),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.White,
-            BackColor = ShellTheme.Accent,
-            Cursor = Cursors.Hand,
-            Enabled = AppUpdateService.IsUpdateSupported,
-        };
-        _checkUpdateButton.FlatAppearance.BorderSize = 0;
-        _checkUpdateButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
-        _checkUpdateButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
-        _checkUpdateButton.Click += async (_, _) => await OnCheckUpdateClickedAsync(includePrerelease: false);
-
-        _checkBetaUpdateButton = new Button
-        {
-            Text = "Verificar atualização Beta",
-            AutoSize = true,
-            Height = 36,
-            Padding = new Padding(16, 0, 16, 0),
-            Margin = new Padding(0, 0, 0, 8),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.Accent,
-            BackColor = Color.White,
-            Cursor = Cursors.Hand,
-            Enabled = AppUpdateService.IsUpdateSupported,
-        };
-        _checkBetaUpdateButton.FlatAppearance.BorderSize = 1;
-        _checkBetaUpdateButton.FlatAppearance.BorderColor = ShellTheme.Accent;
-        _checkBetaUpdateButton.Click += async (_, _) => await OnCheckUpdateClickedAsync(includePrerelease: true);
-
-        updateBtnRow.Controls.Add(_checkUpdateButton);
-        updateBtnRow.Controls.Add(_checkBetaUpdateButton);
-        stack.Controls.Add(updateBtnRow);
-
-        var debugModeButton = new Button
-        {
-            Text = "Modo Debug",
-            AutoSize = true,
-            Height = 32,
-            Padding = new Padding(14, 0, 14, 0),
-            Margin = new Padding(0, 0, 0, 16),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            BackColor = Color.FromArgb(241, 245, 249),
-            Cursor = Cursors.Hand,
-        };
-        debugModeButton.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
-        debugModeButton.FlatAppearance.BorderSize = 1;
-        debugModeButton.Click += (_, _) => DebugConsoleWindow.ShowOrActivate(FindForm());
-        stack.Controls.Add(debugModeButton);
-
-        var inventoryBtnRow = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 0, 0, 24),
-        };
-
-        var exportBtn = new Button
-        {
-            Text = "Exportar relatório JSON",
-            AutoSize = true,
-            Height = 36,
-            Padding = new Padding(16, 0, 16, 0),
-            Margin = new Padding(0, 0, 8, 0),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.White,
-            BackColor = ShellTheme.Accent,
-            Cursor = Cursors.Hand,
-        };
-        exportBtn.FlatAppearance.BorderSize = 0;
-        exportBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
-        exportBtn.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
-        exportBtn.Click += (_, _) => _ = ExportRelatorioJsonAsync();
-
-        _enviarInventarioBtn = new Button
-        {
-            Text = "Enviar inventário ao servidor",
-            AutoSize = true,
-            Height = 36,
-            Padding = new Padding(16, 0, 16, 0),
-            Margin = new Padding(0),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.Accent,
-            BackColor = Color.White,
-            Cursor = Cursors.Hand,
-        };
-        _enviarInventarioBtn.FlatAppearance.BorderSize = 1;
-        _enviarInventarioBtn.FlatAppearance.BorderColor = ShellTheme.Accent;
-        _enviarInventarioBtn.Click += (_, _) => _ = EnviarInventarioServidorAsync();
-
-        inventoryBtnRow.Controls.Add(exportBtn);
-        inventoryBtnRow.Controls.Add(_enviarInventarioBtn);
-        stack.Controls.Add(inventoryBtnRow);
-
-        stack.Controls.Add(MakeFieldLabel("User token"));
-        _glpiUserTokenTextBox = MakeWideTextBox();
-        _glpiUserTokenTextBox.UseSystemPasswordChar = true;
-        stack.Controls.Add(_glpiUserTokenTextBox);
-
-        stack.Controls.Add(MakeSectionGap());
-
-        stack.Controls.Add(MakeFieldLabel("Entidade"));
-        var entityHost = new Panel
-        {
-            Width = 400,
-            Height = 28,
-            Margin = new Padding(0),
-            AutoScroll = false,
-        };
-        _entityComboBox = EntityComboBoxHelper.Create(400);
-        _entityComboBox.Dock = DockStyle.Fill;
-        entityHost.Controls.Add(_entityComboBox);
-        stack.Controls.Add(entityHost);
-
-        stack.Controls.Add(MakeSectionGap());
-
-        var machineIdLabelRow = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 12, 0, 6),
-        };
-        machineIdLabelRow.Controls.Add(new Label
-        {
-            Text = "ID da máquina (plugin Inventário)",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 2, 8, 0),
-        });
-
-        _machineIdLockButton = new Label
-        {
-            Text = LockGlyph,
-            AutoSize = true,
-            Font = new Font("Segoe MDL2 Assets", 14F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.Accent,
-            BackColor = Color.Transparent,
-            Cursor = Cursors.Hand,
-            Margin = new Padding(0, 0, 0, 0),
-        };
-        _machineIdLockButton.Click += (_, _) => OnMachineIdLockClicked();
-        machineIdLabelRow.Controls.Add(_machineIdLockButton);
-        stack.Controls.Add(machineIdLabelRow);
-
-        _glpiMachineIdTextBox = MakeWideTextBox();
-        _glpiMachineIdTextBox.ReadOnly = true;
-        _glpiMachineIdTextBox.BackColor = Color.FromArgb(241, 245, 249);
-        stack.Controls.Add(_glpiMachineIdTextBox);
-
-        _iniciarMinimizadoCheckBox = new CheckBox
-        {
-            Text = "Iniciar em segundo plano",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            BackColor = Color.Transparent,
-            Cursor = Cursors.Hand,
-            Margin = new Padding(0, 16, 0, 8),
-        };
-        stack.Controls.Add(_iniciarMinimizadoCheckBox);
-
-        _saveButton = new Button
-        {
-            Text = "Salvar configurações",
-            AutoSize = true,
-            Height = 36,
-            Padding = new Padding(16, 0, 16, 0),
-            Margin = new Padding(0, 20, 0, 0),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.White,
-            BackColor = ShellTheme.Accent,
-            Cursor = Cursors.Hand,
-        };
-        _saveButton.FlatAppearance.BorderSize = 0;
-        _saveButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(79, 70, 229);
-        _saveButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(67, 56, 202);
-        _saveButton.Click += async (_, _) => await OnSaveClickedAsync();
-
-        _feedbackLabel = new Label
-        {
-            Text = "",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.FromArgb(22, 163, 74),
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 8, 0, 0),
-            Visible = false,
-        };
-
-        stack.Controls.Add(_saveButton);
-        stack.Controls.Add(_feedbackLabel);
-
-        Controls.Add(stack);
+        Controls.Add(host);
 
         Load += OnViewLoad;
         VisibleChanged += OnVisibleChanged;
@@ -327,6 +55,8 @@ internal sealed class SettingsView : UserControl
     {
         if (!Visible)
             LockMachineIdField();
+        else
+            RefreshUpdateStatusLabel();
     }
 
     void OnMachineIdLockClicked()
@@ -347,31 +77,69 @@ internal sealed class SettingsView : UserControl
     void UnlockMachineIdField()
     {
         _machineIdUnlocked = true;
-        _glpiMachineIdTextBox.ReadOnly = false;
-        _glpiMachineIdTextBox.BackColor = SystemColors.Window;
-        _machineIdLockButton.Text = UnlockGlyph;
-        _machineIdLockButton.ForeColor = Color.FromArgb(185, 28, 28);
+        _wpfView.SetMachineIdUnlockedState(unlocked: true);
     }
 
     void LockMachineIdField()
     {
         _machineIdUnlocked = false;
-        _glpiMachineIdTextBox.ReadOnly = true;
-        _glpiMachineIdTextBox.BackColor = Color.FromArgb(241, 245, 249);
-        _machineIdLockButton.Text = LockGlyph;
-        _machineIdLockButton.ForeColor = ShellTheme.Accent;
+        _wpfView.SetMachineIdUnlockedState(unlocked: false);
+    }
+
+    void OnBloqueioRemotoClicked()
+    {
+        var currentlyBlocked = _wpfView.RemotoBloqueado;
+        var host = FindForm();
+
+        if (!currentlyBlocked)
+        {
+            var res = MessageBox.Show(
+                (IWin32Window?)host ?? this,
+                "Deseja realmente bloquear o acesso remoto nesta máquina?\n\nO sistema de acesso remoto do SistecHUB será totalmente desativado e nenhuma conexão de suporte poderá ser realizada até o desbloqueio.",
+                "Bloquear acesso remoto",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (res != DialogResult.Yes)
+                return;
+
+            var settings = AppSettingsStore.Load();
+            settings.RemotoBloqueado = true;
+            AppSettingsStore.Save(settings);
+
+            _wpfView.SetRemotoBloqueado(true);
+            Modulos.AcessoRemoto.AcessoRemotoAgentService.Stop();
+            _wpfView.ShowFeedback("Acesso remoto bloqueado com sucesso nesta máquina.");
+        }
+        else
+        {
+            var res = MessageBox.Show(
+                (IWin32Window?)host ?? this,
+                "Deseja desbloquear e reativar o sistema de acesso remoto nesta máquina?",
+                "Desbloquear acesso remoto",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (res != DialogResult.Yes)
+                return;
+
+            var settings = AppSettingsStore.Load();
+            settings.RemotoBloqueado = false;
+            AppSettingsStore.Save(settings);
+
+            _wpfView.SetRemotoBloqueado(false);
+            Modulos.AcessoRemoto.AcessoRemotoAgentService.Start();
+            _wpfView.ShowFeedback("Acesso remoto desbloqueado e reativado com sucesso.");
+        }
     }
 
     void RefreshUpdateStatusLabel() =>
-        _updateStatusLabel.Text = AppUpdateService.GetUpdateStatusText();
+        _wpfView.SetUpdateStatusText(AppUpdateService.GetUpdateStatusText());
 
     async Task OnCheckUpdateClickedAsync(bool includePrerelease)
     {
-        _checkUpdateButton.Enabled = false;
-        _checkBetaUpdateButton.Enabled = false;
+        _wpfView.SetUpdateButtonsEnabled(false);
         var host = FindForm();
-        if (host is not null)
-            host.UseWaitCursor = true;
         try
         {
             RefreshUpdateStatusLabel();
@@ -382,42 +150,14 @@ internal sealed class SettingsView : UserControl
         }
         finally
         {
-            RefreshUpdateStatusLabel();
-            var supported = AppUpdateService.IsUpdateSupported;
-            _checkUpdateButton.Enabled = supported;
-            _checkBetaUpdateButton.Enabled = supported;
-            if (host is not null)
-                host.UseWaitCursor = false;
+            if (!IsDisposed)
+            {
+                RefreshUpdateStatusLabel();
+                var supported = AppUpdateService.IsUpdateSupported;
+                _wpfView.SetUpdateButtonsEnabled(supported);
+            }
         }
     }
-
-    static Label MakeFieldLabel(string text) =>
-        new()
-        {
-            Text = text,
-            AutoSize = true,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = ShellTheme.TextPrimary,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0, 12, 0, 6),
-        };
-
-    static Panel MakeSectionGap() =>
-        new()
-        {
-            Height = 8,
-            Width = 1,
-            Margin = new Padding(0, 8, 0, 0),
-            BackColor = Color.Transparent,
-        };
-
-    static TextBox MakeWideTextBox() =>
-        new()
-        {
-            Width = 400,
-            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
-            BorderStyle = BorderStyle.FixedSingle,
-        };
 
     async void OnViewLoad(object? sender, EventArgs e)
     {
@@ -425,9 +165,13 @@ internal sealed class SettingsView : UserControl
         RefreshUpdateStatusLabel();
         LockMachineIdField();
         var settings = AppSettingsStore.Load();
-        _glpiUserTokenTextBox.Text = settings.GlpiUserToken ?? "";
-        _glpiMachineIdTextBox.Text = settings.GlpiMachineId ?? "";
-        _iniciarMinimizadoCheckBox.Checked = settings.IniciarMinimizado;
+        _wpfView.GlpiUserToken = settings.GlpiUserToken ?? "";
+        _wpfView.GlpiMachineId = settings.GlpiMachineId ?? "";
+        _wpfView.RemotoServerUrl = string.IsNullOrWhiteSpace(settings.RemotoServerUrl)
+            ? AppSettingsStore.DefaultRemotoServerUrl
+            : settings.RemotoServerUrl;
+        _wpfView.IniciarMinimizado = settings.IniciarMinimizado;
+        _wpfView.SetRemotoBloqueado(settings.RemotoBloqueado);
         _persistedEntityId = ParseEntityId(settings.EntityId);
         ApplySavedEntityPlaceholder();
         await LoadEntityComboAsync(settings).ConfigureAwait(true);
@@ -452,19 +196,12 @@ internal sealed class SettingsView : UserControl
     {
         if (_persistedEntityId < 1)
         {
-            _entityComboBox.Enabled = false;
-            _entityComboBox.DataSource = null;
-            _entityComboBox.Items.Clear();
-            _entityComboBox.Items.Add("Nenhuma entidade configurada");
-            _entityComboBox.SelectedIndex = 0;
+            _wpfView.ShowNoEntityConfigured();
             return;
         }
 
-        _entityComboBox.Enabled = true;
-        EntityComboBoxHelper.Bind(
-            _entityComboBox,
-            [MakeSavedEntityPlaceholder(_persistedEntityId)],
-            _persistedEntityId);
+        _wpfView.SetEntityComboEnabled(true);
+        _wpfView.BindEntities([MakeSavedEntityPlaceholder(_persistedEntityId)], _persistedEntityId);
     }
 
     async Task LoadEntityComboAsync(AppUserSettings settings)
@@ -472,7 +209,7 @@ internal sealed class SettingsView : UserControl
         if (string.IsNullOrWhiteSpace(settings.GlpiUserToken))
             return;
 
-        _entityComboBox.Enabled = false;
+        _wpfView.SetEntityComboEnabled(false);
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
@@ -485,15 +222,15 @@ internal sealed class SettingsView : UserControl
             if (_persistedEntityId >= 1 && list.All(e => e.Id != _persistedEntityId))
                 list.Insert(0, MakeSavedEntityPlaceholder(_persistedEntityId));
 
-            var selectedId = EntityComboBoxHelper.GetSelectedEntityId(_entityComboBox);
+            var selectedId = _wpfView.GetSelectedEntityId();
             if (selectedId < 1)
                 selectedId = _persistedEntityId;
 
-            EntityComboBoxHelper.Bind(_entityComboBox, list, selectedId);
+            _wpfView.BindEntities(list, selectedId);
 
             AppDebugLog.Info(
                 "Entidades",
-                $"API={list.Count}; ComboBox={_entityComboBox.Items.Count}; " +
+                $"API={list.Count}; ComboBox={_wpfView.EntityComboItemCount}; " +
                 $"opus={list.Count(e => e.PickerLabel.Contains("opus", StringComparison.OrdinalIgnoreCase))}; " +
                 $"passarinho={list.Count(e => e.PickerLabel.Contains("passarinho", StringComparison.OrdinalIgnoreCase))}; " +
                 $"donna={list.Count(e => e.PickerLabel.Contains("donna", StringComparison.OrdinalIgnoreCase))}");
@@ -504,13 +241,13 @@ internal sealed class SettingsView : UserControl
         }
         finally
         {
-            _entityComboBox.Enabled = true;
+            _wpfView.SetEntityComboEnabled(true);
         }
     }
 
     int ResolveEntityIdForSave()
     {
-        var entityId = EntityComboBoxHelper.GetSelectedEntityId(_entityComboBox);
+        var entityId = _wpfView.GetSelectedEntityId();
         if (entityId >= 1)
             return entityId;
 
@@ -572,7 +309,7 @@ internal sealed class SettingsView : UserControl
         if (IsDisposed || !IsHandleCreated)
             return;
 
-        _enviarInventarioBtn.Enabled = false;
+        _wpfView.SetEnviarInventarioEnabled(false);
         try
         {
             var before = InventarioServiceCoordinator.TryReadStatus()?.LastUploadUtc;
@@ -620,15 +357,15 @@ internal sealed class SettingsView : UserControl
         }
         finally
         {
-            if (IsHandleCreated && !_enviarInventarioBtn.IsDisposed)
-                _enviarInventarioBtn.Enabled = true;
+            if (!IsDisposed && IsHandleCreated)
+                _wpfView.SetEnviarInventarioEnabled(true);
         }
     }
 
     async Task OnSaveClickedAsync()
     {
-        _saveButton.Enabled = false;
-        _feedbackLabel.Visible = false;
+        _wpfView.SetSaveEnabled(false);
+        _wpfView.HideFeedback();
         var host = FindForm();
         if (host is not null)
             host.UseWaitCursor = true;
@@ -642,9 +379,13 @@ internal sealed class SettingsView : UserControl
 
             var merged = AppSettingsStore.Load();
             merged.EntityId = entityId.ToString();
-            merged.GlpiUserToken = _glpiUserTokenTextBox.Text.Trim();
-            merged.GlpiMachineId = _glpiMachineIdTextBox.Text.Trim();
-            merged.IniciarMinimizado = _iniciarMinimizadoCheckBox.Checked;
+            merged.GlpiUserToken = _wpfView.GlpiUserToken;
+            merged.GlpiMachineId = _wpfView.GlpiMachineId;
+            merged.RemotoServerUrl = string.IsNullOrWhiteSpace(_wpfView.RemotoServerUrl)
+                ? AppSettingsStore.DefaultRemotoServerUrl
+                : _wpfView.RemotoServerUrl;
+            merged.IniciarMinimizado = _wpfView.IniciarMinimizado;
+            merged.RemotoBloqueado = _wpfView.RemotoBloqueado;
             _persistedEntityId = entityId;
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
@@ -652,9 +393,7 @@ internal sealed class SettingsView : UserControl
                 .ConfigureAwait(true);
 
             AppSettingsStore.Save(merged);
-            _feedbackLabel.Text = "Configurações salvas. A reiniciar a aplicação...";
-            _feedbackLabel.ForeColor = Color.FromArgb(22, 163, 74);
-            _feedbackLabel.Visible = true;
+            _wpfView.ShowFeedback("Configurações salvas. A reiniciar a aplicação...");
             host?.Refresh();
             Application.Restart();
         }
@@ -665,7 +404,7 @@ internal sealed class SettingsView : UserControl
         }
         finally
         {
-            _saveButton.Enabled = true;
+            _wpfView.SetSaveEnabled(true);
             if (host is not null)
                 host.UseWaitCursor = false;
         }

@@ -86,6 +86,7 @@ static class Program
 
         try
         {
+            EnsureServiceDacl();
             WindowsStartupRegistration.EnsureRegistered();
             startupLogger.LogInformation("Atalho de arranque para todos os utilizadores (CommonStartup) verificado.");
         }
@@ -95,6 +96,26 @@ static class Program
         }
 
         host.Run();
+    }
+
+    static void EnsureServiceDacl()
+    {
+        try
+        {
+            const string sddl = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWRPWPLOCRRC;;;AU)(A;;CCLCSWLOCRRC;;;SU)";
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "sc.exe",
+                Arguments = $"sdset {WindowsServiceConfig.ServiceName} \"{sddl}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            process?.WaitForExit(5000);
+        }
+        catch
+        {
+            // Best-effort.
+        }
     }
 }
 

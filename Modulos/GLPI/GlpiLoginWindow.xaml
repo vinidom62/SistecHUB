@@ -1,0 +1,330 @@
+<Window x:Class="SistecHub.Modulos.GLPI.GlpiLoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Login de Técnico — Angelus"
+        Width="460"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        FontFamily="Segoe UI"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown">
+
+    <Border Background="#FFFFFF"
+            BorderBrush="#E2E8F0"
+            BorderThickness="1"
+            CornerRadius="18"
+            Padding="30,26"
+            Margin="14">
+        <Border.Effect>
+            <DropShadowEffect Color="#0F172A" BlurRadius="32" ShadowDepth="8" Direction="270" Opacity="0.14"/>
+        </Border.Effect>
+
+        <StackPanel>
+            <!-- Topo: Ícone, Títulos e Botão Fechar (Arrastável) -->
+            <Grid Margin="0,0,0,22" Background="Transparent" MouseLeftButtonDown="Window_MouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0"
+                        Width="46" Height="46"
+                        CornerRadius="12"
+                        Background="#EEF2FF"
+                        Margin="0,0,14,0"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="&#xE77B;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="20"
+                               Foreground="#4F46E5"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Border>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Login de Técnico"
+                               FontSize="17.5"
+                               FontWeight="Bold"
+                               Foreground="#0F172A"
+                               Margin="0,0,0,2"/>
+                    <TextBlock Text="Autentique com sua conta Angelus para desbloquear o acesso com senha."
+                               FontSize="12"
+                               Foreground="#64748B"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <Button Grid.Column="2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Width="32" Height="32"
+                        Cursor="Hand"
+                        VerticalAlignment="Top"
+                        ToolTip="Fechar"
+                        Click="BtnClose_Click">
+                    <TextBlock Text="&#xE711;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="12"
+                               Foreground="#94A3B8"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Button>
+            </Grid>
+
+            <!-- Campo 1: Usuário Angelus -->
+            <StackPanel Margin="0,0,0,14">
+                <TextBlock Text="USUÁRIO ANGELUS"
+                           FontSize="11"
+                           FontWeight="Bold"
+                           Foreground="#64748B"
+                           Margin="0,0,0,6"/>
+
+                <Border Height="44"
+                        Background="#FFFFFF"
+                        BorderBrush="#CBD5E1"
+                        BorderThickness="1.5"
+                        CornerRadius="10">
+                    <Grid Margin="12,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="&#xE77B;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   FontSize="15"
+                                   Foreground="#94A3B8"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,0"/>
+
+                        <TextBox Grid.Column="1"
+                                 x:Name="TxtLogin"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Padding="0"
+                                 FontSize="14"
+                                 FontWeight="SemiBold"
+                                 Foreground="#0F172A"
+                                 VerticalContentAlignment="Center"
+                                 KeyDown="Input_KeyDown"/>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- Campo 2: Senha Angelus -->
+            <StackPanel Margin="0,0,0,16">
+                <TextBlock Text="SENHA ANGELUS"
+                           FontSize="11"
+                           FontWeight="Bold"
+                           Foreground="#64748B"
+                           Margin="0,0,0,6"/>
+
+                <Border Height="44"
+                        Background="#FFFFFF"
+                        BorderBrush="#CBD5E1"
+                        BorderThickness="1.5"
+                        CornerRadius="10">
+                    <Grid Margin="12,0,4,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0"
+                                   Text="&#xE8D7;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   FontSize="15"
+                                   Foreground="#94A3B8"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,10,0"/>
+
+                        <Grid Grid.Column="1">
+                            <PasswordBox x:Name="PwdPassword"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         Padding="0"
+                                         FontSize="14"
+                                         FontWeight="SemiBold"
+                                         Foreground="#0F172A"
+                                         VerticalContentAlignment="Center"
+                                         PasswordChanged="PwdPassword_PasswordChanged"
+                                         KeyDown="Input_KeyDown"/>
+
+                            <TextBox x:Name="TxtPasswordRevealed"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     Padding="0"
+                                     FontSize="14"
+                                     FontWeight="SemiBold"
+                                     Foreground="#0F172A"
+                                     VerticalContentAlignment="Center"
+                                     Visibility="Collapsed"
+                                     TextChanged="TxtPasswordRevealed_TextChanged"
+                                     KeyDown="Input_KeyDown"/>
+                        </Grid>
+
+                        <Button Grid.Column="2"
+                                x:Name="BtnToggleEye"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Width="34" Height="34"
+                                Cursor="Hand"
+                                ToolTip="Mostrar/Ocultar Senha"
+                                Click="BtnToggleEye_Click">
+                            <TextBlock x:Name="IconEye"
+                                       Text="&#xE7B3;"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14"
+                                       Foreground="#64748B"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Button>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- Opção Lembrar Senha com Confirmação -->
+            <StackPanel Margin="0,0,0,18">
+                <CheckBox x:Name="ChkRememberPassword"
+                          FontSize="13"
+                          FontWeight="SemiBold"
+                          Foreground="#334155"
+                          Cursor="Hand"
+                          Click="ChkRememberPassword_Click">
+                    <TextBlock Text="Lembrar senha nesta máquina"
+                               Margin="4,0,0,0"
+                               VerticalAlignment="Center"/>
+                </CheckBox>
+                <TextBlock Text="Salva o login nesta máquina para que acessos futuros identifiquem você."
+                           FontSize="11"
+                           Foreground="#64748B"
+                           Margin="24,3,0,0"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <!-- Banner de Progresso / Loading -->
+            <Border x:Name="ProgressBorder"
+                    Background="#EEF2FF"
+                    BorderBrush="#C7D2FE"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12,10"
+                    Margin="0,0,0,16"
+                    Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <TextBlock Text="&#xE72C;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="14"
+                               Foreground="#4F46E5"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"/>
+                    <TextBlock x:Name="TxtProgressMessage"
+                               Text="Autenticando no Angelus e capturando dados..."
+                               FontSize="12.5"
+                               FontWeight="SemiBold"
+                               Foreground="#3730A3"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Banner de Erro -->
+            <Border x:Name="ErrorBorder"
+                    Background="#FEF2F2"
+                    BorderBrush="#FCA5A5"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12,10"
+                    Margin="0,0,0,16"
+                    Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE783;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="14"
+                               Foreground="#DC2626"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"/>
+                    <TextBlock x:Name="TxtErrorMessage"
+                               Text="Erro de autenticação"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#B91C1C"
+                               TextWrapping="Wrap"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Botões de Ação -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="1.4*"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="0"
+                        x:Name="BtnCancel"
+                        Content="Cancelar"
+                        Height="42"
+                        Background="#FFFFFF"
+                        Foreground="#475569"
+                        BorderBrush="#CBD5E1"
+                        BorderThickness="1"
+                        FontSize="13"
+                        FontWeight="SemiBold"
+                        Cursor="Hand"
+                        Click="BtnCancel_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="10"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+
+                <Button Grid.Column="2"
+                        x:Name="BtnSubmit"
+                        Content="Entrar com Angelus"
+                        Height="42"
+                        Background="#4F46E5"
+                        Foreground="#FFFFFF"
+                        BorderThickness="0"
+                        FontSize="13.5"
+                        FontWeight="Bold"
+                        Cursor="Hand"
+                        Click="BtnSubmit_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="10"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="#4338CA"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Bd" Property="Opacity" Value="0.6"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </StackPanel>
+    </Border>
+</Window>
+

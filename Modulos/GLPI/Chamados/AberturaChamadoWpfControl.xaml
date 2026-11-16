@@ -1,0 +1,615 @@
+<UserControl x:Class="SistecHub.Modulos.GLPI.Chamados.AberturaChamadoWpfControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#F8FAFC"
+             FontFamily="Segoe UI"
+             UseLayoutRounding="True"
+             SnapsToDevicePixels="True">
+
+    <UserControl.Resources>
+        <!-- Botão secundário neutro arredondado -->
+        <Style x:Key="NeutralOutlineButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#F1F5F9"/>
+            <Setter Property="Foreground" Value="#0F172A"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#F8FAFC"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#94A3B8"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#E2E8F0"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.48"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Botão Pastel Verde -->
+        <Style x:Key="PastelGreenButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#DCFCE7"/>
+            <Setter Property="Foreground" Value="#166534"/>
+            <Setter Property="BorderBrush" Value="#86EFAC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#BBF7D0"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#86EFAC"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Botão Pastel Vermelho -->
+        <Style x:Key="PastelRedButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#FEE2E2"/>
+            <Setter Property="Foreground" Value="#991B1B"/>
+            <Setter Property="BorderBrush" Value="#FCA5A5"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FECACA"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FCA5A5"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Botão Primário Indigo (SOLICITAR CHAMADO) -->
+        <Style x:Key="PrimaryIndigoButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#6366F1"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#4F52DD"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#4338CA"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="0,6,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <!-- Row 0: Cabeçalho -->
+            <RowDefinition Height="48"/>
+            <!-- Row 1: Problema técnico + Captura de tela -->
+            <RowDefinition Height="42*"/>
+            <!-- Row 2: Contatos + AnyDesk -->
+            <RowDefinition Height="Auto"/>
+            <!-- Row 3: Observações + Termos/Ações -->
+            <RowDefinition Height="42*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Row 0: Cabeçalho "Abertura de chamado" -->
+        <StackPanel Grid.Row="0" Grid.ColumnSpan="2"
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center"
+                    Margin="0,0,0,8">
+            <Border Width="4"
+                    Height="28"
+                    CornerRadius="2"
+                    Background="#6366F1"
+                    Margin="0,0,12,0"
+                    VerticalAlignment="Center"/>
+            <TextBlock Text="Abertura de chamado"
+                       FontSize="21"
+                       FontWeight="Bold"
+                       Foreground="#0F172A"
+                       VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Row 1, Col 0: Relate o problema técnico + Botão IA -->
+        <Grid Grid.Row="1" Grid.Column="0" Margin="0,0,10,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="28"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="Relate o problema técnico"
+                           FontSize="13.5"
+                           FontWeight="Bold"
+                           Foreground="#0F172A"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0"/>
+                <Button x:Name="BtnIaProblema"
+                        Content="IA"
+                        Style="{StaticResource PastelGreenButtonStyle}"
+                        Width="34"
+                        Height="22"
+                        FontSize="11"
+                        Padding="0"
+                        ToolTip="Melhorar descrição com IA"
+                        Click="BtnIaProblema_Click"/>
+            </StackPanel>
+
+            <Border Grid.Row="1"
+                    Background="#FFFFFF"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    MinHeight="110">
+                <Grid>
+                    <TextBox x:Name="TxtProblema"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="10,8"
+                             FontSize="13.5"
+                             Foreground="#0F172A"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             MaxLength="512"
+                             VerticalScrollBarVisibility="Auto"
+                             VerticalContentAlignment="Top"
+                             TextChanged="TxtProblema_TextChanged"/>
+
+                    <TextBlock x:Name="HintProblema"
+                               IsHitTestVisible="False"
+                               Margin="12,9,12,8"
+                               FontSize="13.5"
+                               Foreground="#94A3B8"
+                               TextWrapping="Wrap"
+                               Text="Exemplo: Após queda de energia, a impressora não liga.&#x0a;&#x0a;Seja rico em detalhes, forneça informações relevantes&#x0a;Exemplo: Modelo da impressora"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Row 1, Col 1: Captura de tela -->
+        <Grid Grid.Row="1" Grid.Column="1" Margin="10,0,0,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="28"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="Captura de tela"
+                       FontSize="13.5"
+                       FontWeight="Bold"
+                       Foreground="#0F172A"
+                       VerticalAlignment="Center"/>
+
+            <Border Grid.Row="1"
+                    Background="#FFFFFF"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    ClipToBounds="True">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="42"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Área clicável de preview -->
+                    <Border x:Name="CapturaPreviewHost"
+                            Grid.Row="0"
+                            Background="#FFFFFF"
+                            Cursor="Hand"
+                            MouseLeftButtonUp="CapturaPreviewHost_MouseLeftButtonUp">
+                        <Grid>
+                            <TextBlock x:Name="TxtCapturaHint"
+                                       Text="Clique para escolher&#x0a;imagem ou ficheiro"
+                                       FontSize="13.5"
+                                       Foreground="#64748B"
+                                       TextAlignment="Center"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+
+                            <Image x:Name="ImgCapturaPreview"
+                                   Stretch="Uniform"
+                                   Margin="6"
+                                   Visibility="Collapsed"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Faixa inferior de botões -->
+                    <Border Grid.Row="1"
+                            Background="#F8FAFC"
+                            BorderBrush="#E2E8F0"
+                            BorderThickness="0,1,0,0"
+                            Padding="8,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="BtnCapturaTela"
+                                    Content="Captura de tela"
+                                    Style="{StaticResource NeutralOutlineButtonStyle}"
+                                    Height="28"
+                                    Padding="10,0"
+                                    Margin="0,0,6,0"
+                                    Click="BtnCapturaTela_Click"/>
+
+                            <Button x:Name="BtnAnexoEscolher"
+                                    Content="Anexar arquivo"
+                                    Style="{StaticResource NeutralOutlineButtonStyle}"
+                                    Height="28"
+                                    Padding="10,0"
+                                    Margin="0,0,6,0"
+                                    Click="BtnAnexoEscolher_Click"/>
+
+                            <Button x:Name="BtnAnexoLimpar"
+                                    Content="Limpar"
+                                    Style="{StaticResource NeutralOutlineButtonStyle}"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Foreground="#64748B"
+                                    Height="28"
+                                    Padding="8,0"
+                                    IsEnabled="False"
+                                    Click="BtnAnexoLimpar_Click"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Row 2, Col 0: Contatos (WhatsApp + Nome de contato) -->
+        <Grid Grid.Row="2" Grid.Column="0" Margin="0,0,10,12" VerticalAlignment="Top">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="24"/>
+                <RowDefinition Height="36"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0"
+                       Text="WhatsApp *"
+                       FontSize="13.5"
+                       FontWeight="Bold"
+                       Foreground="#0F172A"
+                       VerticalAlignment="Center"/>
+
+            <TextBlock Grid.Row="0" Grid.Column="1"
+                       Text="Nome de contato *"
+                       FontSize="13.5"
+                       FontWeight="Bold"
+                       Foreground="#0F172A"
+                       VerticalAlignment="Center"
+                       Margin="8,0,0,0"/>
+
+            <Border Grid.Row="1" Grid.Column="0"
+                    Background="#FFFFFF"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Margin="0,0,8,0">
+                <Grid>
+                    <TextBox x:Name="TxtWhatsapp"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="10,0"
+                             FontSize="13.5"
+                             Foreground="#0F172A"
+                             MaxLength="30"
+                             VerticalContentAlignment="Center"
+                             PreviewTextInput="DigitsOnly_PreviewTextInput"
+                             DataObject.Pasting="DigitsOnly_Pasting"
+                             TextChanged="TxtWhatsapp_TextChanged"/>
+                    <TextBlock x:Name="HintWhatsapp"
+                               Text="(DDD) + Telefone"
+                               IsHitTestVisible="False"
+                               Margin="12,0,10,0"
+                               FontSize="13.5"
+                               Foreground="#94A3B8"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1" Grid.Column="1"
+                    Background="#FFFFFF"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Margin="8,0,0,0">
+                <Grid>
+                    <TextBox x:Name="TxtNomeContato"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="10,0"
+                             FontSize="13.5"
+                             Foreground="#0F172A"
+                             MaxLength="30"
+                             VerticalContentAlignment="Center"
+                             PreviewTextInput="LettersOnly_PreviewTextInput"
+                             DataObject.Pasting="LettersOnly_Pasting"
+                             TextChanged="TxtNomeContato_TextChanged"/>
+                    <TextBlock x:Name="HintNomeContato"
+                               Text="Seu nome"
+                               IsHitTestVisible="False"
+                               Margin="12,0,10,0"
+                               FontSize="13.5"
+                               Foreground="#94A3B8"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Row 2, Col 1: Acesso Remoto (SistecHUB + AnyDesk) -->
+        <Grid Grid.Row="2" Grid.Column="1" Margin="10,0,0,12" VerticalAlignment="Top">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="24"/>
+                <RowDefinition Height="36"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Sub-Col 0: ID SistecHUB (Remoto) -->
+            <TextBlock x:Name="LblRemotoId"
+                       Grid.Row="0" Grid.Column="0"
+                       Text="ID SistecHUB (Remoto)"
+                       FontSize="13.5"
+                       FontWeight="Bold"
+                       Foreground="#0F172A"
+                       VerticalAlignment="Center"
+                       Margin="0,0,8,0"/>
+
+            <Border x:Name="RemotoIdBorder"
+                    Grid.Row="1" Grid.Column="0"
+                    Background="#FFFFFF"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Margin="0,0,8,0">
+                <Grid>
+                    <TextBox x:Name="TxtRemotoId"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="10,0"
+                             FontSize="13.5"
+                             FontWeight="SemiBold"
+                             Foreground="#4338CA"
+                             MaxLength="15"
+                             VerticalContentAlignment="Center"
+                             PreviewTextInput="DigitsAndSpaces_PreviewTextInput"
+                             DataObject.Pasting="DigitsAndSpaces_Pasting"
+                             TextChanged="TxtRemotoId_TextChanged"/>
+                    <TextBlock x:Name="HintRemotoId"
+                               Text="--- --- ---"
+                               IsHitTestVisible="False"
+                               Margin="12,0,10,0"
+                               FontSize="13.5"
+                               Foreground="#94A3B8"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <!-- Sub-Col 1: AnyDesk -->
+            <TextBlock x:Name="LblAnyDesk"
+                       Grid.Row="0" Grid.Column="1"
+                       Text="AnyDesk"
+                       FontSize="13.5"
+                       FontWeight="Bold"
+                       Foreground="#0F172A"
+                       VerticalAlignment="Center"
+                       Margin="8,0,0,0"/>
+
+            <Border x:Name="AnyDeskBorder"
+                    Grid.Row="1" Grid.Column="1"
+                    Background="#FFFFFF"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Margin="8,0,0,0">
+                <Grid>
+                    <TextBox x:Name="TxtAnyDesk"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="10,0"
+                             FontSize="13.5"
+                             Foreground="#0F172A"
+                             MaxLength="15"
+                             VerticalContentAlignment="Center"
+                             PreviewTextInput="DigitsOnly_PreviewTextInput"
+                             DataObject.Pasting="DigitsOnly_Pasting"
+                             TextChanged="TxtAnyDesk_TextChanged"/>
+                    <TextBlock x:Name="HintAnyDesk"
+                               Text="Somente números"
+                               IsHitTestVisible="False"
+                               Margin="12,0,10,0"
+                               FontSize="13.5"
+                               Foreground="#94A3B8"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <!-- Row 2: Botões de Acesso Remoto (unificados para SistecHUB e AnyDesk) -->
+            <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                        Orientation="Horizontal"
+                        Margin="0,8,0,0">
+                <Button x:Name="BtnCapturarAcessoRemoto"
+                        Content="Capturar acesso remoto"
+                        Style="{StaticResource PastelGreenButtonStyle}"
+                        Height="28"
+                        Padding="14,0"
+                        Margin="0,0,8,0"
+                        ToolTip="Capturar ID SistecHUB e AnyDesk desta máquina"
+                        Click="BtnCapturarAcessoRemoto_Click"/>
+
+                <Button x:Name="BtnAcessoRemotoNaoSeAplica"
+                        Content="Não se aplica"
+                        Style="{StaticResource PastelRedButtonStyle}"
+                        Height="28"
+                        Padding="14,0"
+                        ToolTip="Marcar que o acesso remoto não se aplica a este chamado"
+                        Click="BtnAcessoRemotoNaoSeAplica_Click"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Row 3, Col 0: Observações importantes -->
+        <Grid Grid.Row="3" Grid.Column="0" Margin="0,0,10,4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="28"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="Observações importantes"
+                       FontSize="13.5"
+                       FontWeight="Bold"
+                       Foreground="#0F172A"
+                       VerticalAlignment="Center"/>
+
+            <Border Grid.Row="1"
+                    Background="#FFFFFF"
+                    BorderBrush="#CBD5E1"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    MinHeight="110">
+                <Grid>
+                    <TextBox x:Name="TxtObservacoes"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="10,8"
+                             FontSize="13.5"
+                             Foreground="#0F172A"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             MaxLength="512"
+                             VerticalScrollBarVisibility="Auto"
+                             VerticalContentAlignment="Top"
+                             TextChanged="TxtObservacoes_TextChanged"/>
+
+                    <TextBlock x:Name="HintObservacoes"
+                               Text="Exemplo: estarei disponível somente até 18:00."
+                               IsHitTestVisible="False"
+                               Margin="12,9,12,8"
+                               FontSize="13.5"
+                               Foreground="#94A3B8"
+                               TextWrapping="Wrap"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Row 3, Col 1: Termos de uso + Botões CANCELAR / SOLICITAR CHAMADO -->
+        <Grid Grid.Row="3" Grid.Column="1" Margin="10,0,0,4">
+            <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Right">
+                <TextBlock FontSize="12.5"
+                           Foreground="#64748B"
+                           TextWrapping="Wrap"
+                           TextAlignment="Right"
+                           Margin="0,0,0,12">
+                    <Run Text="Ao abrir este chamado, declaro estar ciente e de acordo com os "/>
+                    <Hyperlink Click="TermosHyperlink_Click"
+                               Foreground="#6366F1"
+                               TextDecorations="None">
+                        <Run Text="termos de uso"/>
+                    </Hyperlink><Run Text="."/>
+                </TextBlock>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="BtnCancelar"
+                            Content="CANCELAR"
+                            Style="{StaticResource NeutralOutlineButtonStyle}"
+                            Height="40"
+                            Padding="18,0"
+                            Margin="0,0,8,0"
+                            Click="BtnCancelar_Click"/>
+
+                    <Button x:Name="BtnSolicitarChamado"
+                            Content="SOLICITAR CHAMADO"
+                            Style="{StaticResource PrimaryIndigoButtonStyle}"
+                            Height="40"
+                            Padding="20,0"
+                            Click="BtnSolicitarChamado_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>
+
