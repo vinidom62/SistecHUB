@@ -62,10 +62,10 @@ internal sealed class UpdateProgressForm : Form
         Text = "SistecHub — Atualização do Sistema";
         ClientSize = new Size(520, 265);
         StartPosition = FormStartPosition.CenterScreen;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
-        MinimizeBox = false;
-        ControlBox = false;
+        MinimizeBox = true;
+        ControlBox = true;
         ShowInTaskbar = true;
         BackColor = ShellTheme.MainBg;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);

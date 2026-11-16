@@ -34,10 +34,15 @@ public static class UserSessionUpdateWatcher
 
             var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(psScript));
 
+            var safeWorkingDir = Directory.Exists(SharedMachineStorage.RootPath)
+                ? SharedMachineStorage.RootPath
+                : Path.GetTempPath();
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
                 Arguments = $"-STA -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encodedCommand}",
+                WorkingDirectory = safeWorkingDir,
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 WindowStyle = ProcessWindowStyle.Hidden,
@@ -79,6 +84,7 @@ public static class UserSessionUpdateWatcher
         // 6. Inicia o novo SistecHub.exe na sessão do utilizador.
         return $@"
 $ErrorActionPreference = 'SilentlyContinue'
+try {{ Set-Location $env:TEMP }} catch {{}}
 $targetExe = '{exePath.Replace("'", "''")}'
 $appDir = [System.IO.Path]::GetDirectoryName($targetExe)
 $sqVersionFile = [System.IO.Path]::Combine($appDir, 'sq.version')
@@ -206,7 +212,7 @@ if ($showUi) {{
         WindowStyle=""None""
         AllowsTransparency=""True""
         Background=""Transparent""
-        ResizeMode=""NoResize""
+        ResizeMode=""CanMinimize""
         Topmost=""True""
         ShowInTaskbar=""True"">
     <Border CornerRadius=""14"" Background=""#FFFFFF"" BorderBrush=""#CBD5E1"" BorderThickness=""1"" Margin=""10"">
@@ -220,12 +226,37 @@ if ($showUi) {{
                 <RowDefinition Height=""Auto""/>
                 <RowDefinition Height=""*""/>
             </Grid.RowDefinitions>
-            <StackPanel Grid.Row=""0"" Orientation=""Horizontal"" Margin=""0,0,0,10"">
-                <Border Width=""32"" Height=""32"" CornerRadius=""8"" Background=""#EEF2FF"" Margin=""0,0,12,0"" VerticalAlignment=""Center"">
-                    <TextBlock Text=""&#xE895;"" FontFamily=""Segoe MDL2 Assets"" FontSize=""16"" Foreground=""#4F46E5"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
-                </Border>
-                <TextBlock Text=""Atualizando o SistecHub"" FontSize=""17"" FontWeight=""Bold"" Foreground=""#0F172A"" VerticalAlignment=""Center""/>
-            </StackPanel>
+            <Grid Grid.Row=""0"" Margin=""0,0,0,10"">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width=""*""/>
+                    <ColumnDefinition Width=""Auto""/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column=""0"" Orientation=""Horizontal"">
+                    <Border Width=""32"" Height=""32"" CornerRadius=""8"" Background=""#EEF2FF"" Margin=""0,0,12,0"" VerticalAlignment=""Center"">
+                        <TextBlock Text=""&#xE895;"" FontFamily=""Segoe MDL2 Assets"" FontSize=""16"" Foreground=""#4F46E5"" HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+                    </Border>
+                    <TextBlock Text=""Atualizando o SistecHub"" FontSize=""17"" FontWeight=""Bold"" Foreground=""#0F172A"" VerticalAlignment=""Center""/>
+                </StackPanel>
+                <Button x:Name=""BtnMinimize"" Grid.Column=""1"" Width=""28"" Height=""28""
+                        ToolTip=""Minimizar"" VerticalAlignment=""Center"" Cursor=""Hand""
+                        Background=""Transparent"" BorderThickness=""0"" Foreground=""#64748B"">
+                    <Button.Template>
+                        <ControlTemplate TargetType=""Button"">
+                            <Border x:Name=""Bd"" Background=""Transparent"" CornerRadius=""6"">
+                                <TextBlock Text=""&#xE921;"" FontFamily=""Segoe MDL2 Assets"" FontSize=""11""
+                                           Foreground=""{{TemplateBinding Foreground}}""
+                                           HorizontalAlignment=""Center"" VerticalAlignment=""Center""/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property=""IsMouseOver"" Value=""True"">
+                                    <Setter TargetName=""Bd"" Property=""Background"" Value=""#F1F5F9""/>
+                                    <Setter Property=""Foreground"" Value=""#0F172A""/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
             <TextBlock x:Name=""TxtMessage"" Grid.Row=""1""
                        Text=""Aplicando arquivos da nova versão... Por favor, aguarde alguns instantes.""
                        FontSize=""13"" Foreground=""#475569"" TextWrapping=""Wrap"" Margin=""0,0,0,18""/>
@@ -244,7 +275,20 @@ if ($showUi) {{
             if ($txtMsg) {{
                 $txtMsg.Text = ""Aplicando arquivos da versão $verDisplay... Por favor, aguarde alguns instantes.""
             }}
+            $btnMin = $window.FindName('BtnMinimize')
+            if ($btnMin) {{
+                $btnMin.Add_Click({{
+                    $window.WindowState = [System.Windows.WindowState]::Minimized
+                }})
+            }}
         }} catch {{}}
+
+        $window.Add_MouseLeftButtonDown({{
+            param($s, $e)
+            if ($e.ButtonState -eq [System.Windows.Input.MouseButtonState]::Pressed) {{
+                try {{ $window.DragMove() }} catch {{}}
+            }}
+        }})
 
         $window.Add_Closing({{
             param($s, $e)

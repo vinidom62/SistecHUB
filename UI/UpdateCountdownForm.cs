@@ -16,10 +16,11 @@ internal sealed class UpdateCountdownForm : Form
         Text = "Atualização disponível";
         ClientSize = new Size(460, 180);
         StartPosition = FormStartPosition.CenterScreen;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
-        MinimizeBox = false;
-        ControlBox = false;
+        MinimizeBox = true;
+        ControlBox = true;
+        ShowInTaskbar = true;
         BackColor = ShellTheme.MainBg;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
         TopMost = true;
