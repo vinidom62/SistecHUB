@@ -99,8 +99,13 @@ internal sealed class MainForm : Form
             };
         }
 
+        AppThemeManager.Initialize();
+        var isDark = AppThemeManager.IsDarkMode;
+        var sidebarBg = isDark ? Color.FromArgb(17, 17, 19) : ShellTheme.SidebarBg;
+
         _sidebarControl = new SidebarControl();
         _sidebarControl.SetMenuEntries(BuildMenuEntries());
+        _sidebarControl.SetDarkMode(isDark);
         _sidebarControl.PageSelected += pageId =>
         {
             if (InvokeRequired)
@@ -112,7 +117,7 @@ internal sealed class MainForm : Form
         var sidebarElementHost = new ElementHost
         {
             Dock = DockStyle.Fill,
-            BackColor = ShellTheme.SidebarBg,
+            BackColor = sidebarBg,
             Child = _sidebarControl,
         };
 
@@ -120,7 +125,7 @@ internal sealed class MainForm : Form
         {
             Dock = DockStyle.Left,
             Width = 236,
-            BackColor = ShellTheme.SidebarBg,
+            BackColor = sidebarBg,
         };
         _sidebar.Controls.Add(sidebarElementHost);
 
@@ -743,6 +748,7 @@ internal sealed class MainForm : Form
         {
             var home = new HomeView();
             home.NavigateRequested += pageId => ShowPage(pageId);
+            home.DarkModeChanged += ApplyGlobalDarkMode;
             return home;
         }
 
@@ -759,6 +765,22 @@ internal sealed class MainForm : Form
             return module.CreateContentView();
 
         return new PlaceholderView("SistecHub", "Página não encontrada.");
+    }
+
+    void ApplyGlobalDarkMode(bool isDark)
+    {
+        var mainBg = ShellTheme.MainBg;
+        BackColor = mainBg;
+        _contentHost.BackColor = mainBg;
+
+        var sidebarBg = isDark ? Color.FromArgb(17, 17, 19) : ShellTheme.SidebarBg;
+        _sidebar.BackColor = sidebarBg;
+        if (_sidebar.Controls.Count > 0)
+            _sidebar.Controls[0].BackColor = sidebarBg;
+        _sidebarControl.SetDarkMode(isDark);
+
+        if (IsHandleCreated)
+            Win32Dwm.ApplyTitleBarTheme(Handle, isDark);
     }
 
     bool TryAuthorizeSettingsAccess()

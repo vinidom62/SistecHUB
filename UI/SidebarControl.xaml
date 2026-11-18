@@ -11,6 +11,9 @@
         <SolidColorBrush x:Key="HeaderBg" Color="#0C1220"/>
         <SolidColorBrush x:Key="DividerBrush" Color="#1E293B"/>
         <SolidColorBrush x:Key="DividerStrongBrush" Color="#334155"/>
+        <SolidColorBrush x:Key="NavHoverBrush" Color="#25344D"/>
+        <SolidColorBrush x:Key="EntityBgBrush" Color="#162033"/>
+        <SolidColorBrush x:Key="EntityBorderBrush" Color="#22304A"/>
         <SolidColorBrush x:Key="AccentBrush" Color="#6366F1"/>
         <SolidColorBrush x:Key="AccentLightBrush" Color="#818CF8"/>
         <SolidColorBrush x:Key="TextMainBrush" Color="#F1F5F9"/>
@@ -44,8 +47,15 @@
                             </Border>
                         </Grid>
                         <ControlTemplate.Triggers>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="Tag" Value="Dark"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#27272C"/>
+                            </MultiTrigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#25344D"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource NavHoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="#312E81"/>
@@ -57,8 +67,8 @@
         </Style>
     </UserControl.Resources>
 
-    <Border Background="{StaticResource SidebarBg}"
-            BorderBrush="{StaticResource DividerStrongBrush}"
+    <Border Background="{DynamicResource SidebarBg}"
+            BorderBrush="{DynamicResource DividerStrongBrush}"
             BorderThickness="0,0,1,0">
         <Grid>
             <Grid.RowDefinitions>
@@ -70,8 +80,8 @@
 
             <!-- Cabeçalho com Logo -->
             <Border Grid.Row="0"
-                    Background="{StaticResource HeaderBg}"
-                    BorderBrush="{StaticResource DividerBrush}"
+                    Background="{DynamicResource HeaderBg}"
+                    BorderBrush="{DynamicResource DividerBrush}"
                     BorderThickness="0,0,0,1"
                     Padding="20,14">
                 <Grid>
@@ -96,7 +106,7 @@
                        Text="NAVEGAÇÃO"
                        FontSize="10"
                        FontWeight="Bold"
-                       Foreground="{StaticResource TextMutedBrush}"
+                       Foreground="{DynamicResource TextMutedBrush}"
                        Margin="20,16,16,8"/>
 
             <!-- Lista de Módulos -->
@@ -109,19 +119,19 @@
 
             <!-- Rodapé: Entidade + Configurações -->
             <Border Grid.Row="3"
-                    Background="{StaticResource SidebarBg}"
+                    Background="{DynamicResource SidebarBg}"
                     Padding="12,10,12,14">
                 <StackPanel>
                     <Border Height="1"
-                            Background="{StaticResource DividerStrongBrush}"
+                            Background="{DynamicResource DividerStrongBrush}"
                             Margin="4,0,4,12"/>
 
                     <!-- Badge da Entidade -->
                     <Border x:Name="EntityBadge"
                             Height="44"
                             CornerRadius="10"
-                            Background="#162033"
-                            BorderBrush="#22304A"
+                            Background="{DynamicResource EntityBgBrush}"
+                            BorderBrush="{DynamicResource EntityBorderBrush}"
                             BorderThickness="1"
                             Margin="0,0,0,6"
                             Padding="12,0">

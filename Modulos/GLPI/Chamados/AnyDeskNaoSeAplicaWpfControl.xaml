@@ -1,16 +1,16 @@
 <UserControl x:Class="SistecHub.Modulos.GLPI.Chamados.AnyDeskNaoSeAplicaWpfControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#F8FAFC"
+             Background="{DynamicResource Theme.PageBg}"
              FontFamily="Segoe UI"
              UseLayoutRounding="True"
              SnapsToDevicePixels="True">
 
     <UserControl.Resources>
         <Style x:Key="OutlineCancelButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#F1F5F9"/>
-            <Setter Property="Foreground" Value="#0F172A"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Background" Value="{DynamicResource Theme.SubtleBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.BorderStrong}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Height" Value="36"/>
@@ -31,10 +31,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#F8FAFC"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.SurfaceBg}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#E2E8F0"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.StrongBg}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -87,7 +87,7 @@
 
         <TextBlock Grid.Row="0"
                    FontSize="13.5"
-                   Foreground="#0F172A"
+                   Foreground="{DynamicResource Theme.TextPrimary}"
                    TextWrapping="Wrap"
                    VerticalAlignment="Center"
                    Margin="0,0,0,16">

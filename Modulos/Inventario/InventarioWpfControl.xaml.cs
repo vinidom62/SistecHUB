@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
+using SistecHub.UI;
 using MediaBrush = System.Windows.Media.Brush;
 using MediaColor = System.Windows.Media.Color;
 using MediaSolidColorBrush = System.Windows.Media.SolidColorBrush;
@@ -23,26 +24,28 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
     public event EventHandler? KeyRevealOrHideClicked;
     public event EventHandler? CopyKeyClicked;
 
-    static readonly MediaBrush PrimaryTextBrush = CreateFrozenBrush(15, 23, 42);
-    static readonly MediaBrush MutedTextBrush = CreateFrozenBrush(100, 116, 139);
+    static MediaBrush PrimaryTextBrush => AppThemeManager.TextPrimary;
+    static MediaBrush MutedTextBrush => AppThemeManager.TextMuted;
     static readonly MediaBrush AccentBrush = CreateFrozenBrush(99, 102, 241);
-    static readonly MediaBrush WhiteBrush = CreateFrozenBrush(255, 255, 255);
-    static readonly MediaBrush CardBorderBrush = CreateFrozenBrush(226, 232, 240);
+    static MediaBrush WhiteBrush => AppThemeManager.CardBg;
+    static MediaBrush CardBorderBrush => AppThemeManager.BorderSubtle;
 
-    static readonly MediaBrush ActivatedBadgeBgBrush = CreateFrozenBrush(220, 252, 231);
-    static readonly MediaBrush ActivatedBadgeFgBrush = CreateFrozenBrush(22, 101, 52);
-    static readonly MediaBrush UnactivatedBadgeBgBrush = CreateFrozenBrush(254, 226, 226);
-    static readonly MediaBrush UnactivatedBadgeFgBrush = CreateFrozenBrush(153, 27, 27);
-    static readonly MediaBrush NeutralBadgeBgBrush = CreateFrozenBrush(241, 245, 249);
+    static MediaBrush ActivatedBadgeBgBrush => AppThemeManager.SuccessSoftBg;
+    static MediaBrush ActivatedBadgeFgBrush => AppThemeManager.SuccessText;
+    static MediaBrush UnactivatedBadgeBgBrush => AppThemeManager.DangerSoftBg;
+    static MediaBrush UnactivatedBadgeFgBrush => AppThemeManager.DangerText;
+    static MediaBrush NeutralBadgeBgBrush => AppThemeManager.SubtleBg;
+    static readonly Geometry CheckIconGeometry = CreateFrozenGeometry("M 1.5,6.5 L 4.5,9.5 L 10.5,2.5");
+    static readonly Geometry CrossIconGeometry = CreateFrozenGeometry("M 2,2 L 10,10 M 10,2 L 2,10");
 
-    static readonly MediaBrush HealthHealthyBrush = CreateFrozenBrush(22, 163, 74);
-    static readonly MediaBrush HealthHealthyBgBrush = CreateFrozenBrush(220, 252, 231);
-    static readonly MediaBrush HealthWarningBrush = CreateFrozenBrush(217, 119, 6);
-    static readonly MediaBrush HealthWarningBgBrush = CreateFrozenBrush(254, 243, 199);
-    static readonly MediaBrush HealthFailureBrush = CreateFrozenBrush(220, 38, 38);
-    static readonly MediaBrush HealthFailureBgBrush = CreateFrozenBrush(254, 226, 226);
+    static MediaBrush HealthHealthyBrush => AppThemeManager.SuccessText;
+    static MediaBrush HealthHealthyBgBrush => AppThemeManager.SuccessSoftBg;
+    static MediaBrush HealthWarningBrush => AppThemeManager.WarningText;
+    static MediaBrush HealthWarningBgBrush => AppThemeManager.WarningSoftBg;
+    static MediaBrush HealthFailureBrush => AppThemeManager.DangerText;
+    static MediaBrush HealthFailureBgBrush => AppThemeManager.DangerSoftBg;
 
-    static readonly MediaBrush ProgressTrackBrush = CreateFrozenBrush(241, 245, 249);
+    static MediaBrush ProgressTrackBrush => AppThemeManager.SubtleBg;
     static readonly MediaBrush ProgressFillNormalBrush = CreateFrozenBrush(79, 70, 229);
     static readonly MediaBrush ProgressFillWarningBrush = CreateFrozenBrush(217, 119, 6);
     static readonly MediaBrush ProgressFillDangerBrush = CreateFrozenBrush(220, 38, 38);
@@ -168,14 +171,14 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
             var timePart = text.Substring(prefix.Length).Trim();
             TxtStatusCategory.Text = "ÚLTIMA SINCRONIZAÇÃO";
             TxtLastUpdate.Text = $"Às {timePart}";
-            TxtLastUpdate.Foreground = CreateFrozenBrush(30, 41, 59);
+            TxtLastUpdate.Foreground = AppThemeManager.TextHeading;
             StatusDotContainer.Background = CreateFrozenBrush(16, 185, 129);
             return;
         }
 
         TxtStatusCategory.Text = "ÚLTIMA SINCRONIZAÇÃO";
         TxtLastUpdate.Text = text;
-        TxtLastUpdate.Foreground = CreateFrozenBrush(30, 41, 59);
+        TxtLastUpdate.Foreground = AppThemeManager.TextHeading;
         StatusDotContainer.Background = CreateFrozenBrush(16, 185, 129);
     }
 
@@ -220,19 +223,27 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
             : $"•  {so.VersaoAtual}";
 
         var isAtivado = string.Equals(so.StatusAtivacao, "Ativado", StringComparison.OrdinalIgnoreCase);
+        var channelInfo = !string.IsNullOrWhiteSpace(so.CanalLicenca) ? $" ({so.CanalLicenca.Trim()})" : "";
+        PathOsStatusIcon.Visibility = Visibility.Visible;
         if (isAtivado)
         {
-            var channelInfo = !string.IsNullOrWhiteSpace(so.CanalLicenca) ? $" ({so.CanalLicenca})" : "";
-            TxtOsStatus.Text = $"✔ Ativado{channelInfo}";
+            PathOsStatusIcon.Data = CheckIconGeometry;
+            PathOsStatusIcon.Stroke = ActivatedBadgeFgBrush;
+            TxtOsStatus.Text = $"Ativado{channelInfo}";
             BdOsStatus.Background = ActivatedBadgeBgBrush;
             TxtOsStatus.Foreground = ActivatedBadgeFgBrush;
         }
         else
         {
-            TxtOsStatus.Text = $"✖ {so.StatusAtivacao}";
+            PathOsStatusIcon.Data = CrossIconGeometry;
+            PathOsStatusIcon.Stroke = UnactivatedBadgeFgBrush;
+            TxtOsStatus.Text = $"{so.StatusAtivacao}{channelInfo}";
             BdOsStatus.Background = UnactivatedBadgeBgBrush;
             TxtOsStatus.Foreground = UnactivatedBadgeFgBrush;
         }
+
+        InvalidateOsStatusLayout();
+        AppThemeManager.RefreshIfDark(BdOsStatus);
     }
 
     public void ApplyErrorState()
@@ -251,21 +262,56 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
 
         TxtOsName.Text = "Windows";
         TxtOsVersion.Text = "";
+        PathOsStatusIcon.Visibility = Visibility.Collapsed;
         TxtOsStatus.Text = "—";
         BdOsStatus.Background = NeutralBadgeBgBrush;
         TxtOsStatus.Foreground = MutedTextBrush;
+        InvalidateOsStatusLayout();
+        AppThemeManager.RefreshIfDark(BdOsStatus);
+    }
+
+    void InvalidateOsStatusLayout()
+    {
+        TxtOsStatus.InvalidateMeasure();
+        PathOsStatusIcon.InvalidateMeasure();
+        SpOsStatus.InvalidateMeasure();
+        BdOsStatus.InvalidateMeasure();
+        TxtOsKey.InvalidateMeasure();
+        BtnRevealKey.InvalidateMeasure();
+        BtnCopyKey.InvalidateMeasure();
+        SpOsKey.InvalidateMeasure();
+        BdOsKey.InvalidateMeasure();
+        if (BdOsStatus.Parent is UIElement parent)
+            parent.InvalidateMeasure();
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            TxtOsStatus.InvalidateMeasure();
+            SpOsStatus.InvalidateMeasure();
+            BdOsStatus.InvalidateMeasure();
+            TxtOsKey.InvalidateMeasure();
+            BtnRevealKey.InvalidateMeasure();
+            BtnCopyKey.InvalidateMeasure();
+            SpOsKey.InvalidateMeasure();
+            BdOsKey.InvalidateMeasure();
+            if (BdOsStatus.Parent is UIElement p)
+                p.InvalidateMeasure();
+        }, DispatcherPriority.Loaded);
     }
 
     public void UpdateKeyDisplay(string? currentOsKey, bool isKeyRevealed)
     {
         if (string.IsNullOrWhiteSpace(currentOsKey))
         {
+            BdOsKey.Visibility = Visibility.Collapsed;
             TxtOsKey.Visibility = Visibility.Collapsed;
             BtnRevealKey.Visibility = Visibility.Collapsed;
             BtnCopyKey.Visibility = Visibility.Collapsed;
+            InvalidateOsStatusLayout();
             return;
         }
 
+        BdOsKey.Visibility = Visibility.Visible;
         TxtOsKey.Visibility = Visibility.Visible;
         BtnRevealKey.Visibility = Visibility.Visible;
         BtnCopyKey.Visibility = Visibility.Visible;
@@ -286,6 +332,9 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
             BtnRevealKey.ToolTip = "Exibir chave (requer senha de administrador)";
             TxtOsKey.ToolTip = "Clique para exibir a chave (requer senha de administrador)";
         }
+
+        InvalidateOsStatusLayout();
+        AppThemeManager.RefreshIfDark(BdOsStatus);
     }
 
     void RebuildDiskCards(IReadOnlyList<DiscoRigidoInventario>? disks)
@@ -400,7 +449,7 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
             Width = 34,
             Height = 34,
             CornerRadius = new CornerRadius(8),
-            Background = CreateFrozenBrush(238, 242, 255),
+            Background = AppThemeManager.IndigoSoftBg,
             Child = new TextBlock
             {
                 Text = "\uEDA2",
@@ -545,8 +594,8 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
             var isFail = disk.Saude == "falha";
             alertBadge = new Border
             {
-                Background = isFail ? CreateFrozenBrush(254, 242, 242) : CreateFrozenBrush(254, 249, 195),
-                BorderBrush = isFail ? CreateFrozenBrush(254, 202, 202) : CreateFrozenBrush(253, 224, 71),
+                Background = isFail ? AppThemeManager.DangerSoftBg : AppThemeManager.WarningSoftBg,
+                BorderBrush = isFail ? AppThemeManager.DangerSoftBorder : AppThemeManager.WarningSoftBorder,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(6, 2.5, 6, 2.5),
@@ -557,7 +606,7 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
                     Text = $"⚠ {disk.AlertaMotivo}",
                     FontSize = 9.5,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = isFail ? CreateFrozenBrush(185, 28, 28) : CreateFrozenBrush(133, 77, 14),
+                    Foreground = isFail ? AppThemeManager.DangerText : AppThemeManager.WarningText,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                 },
             };
@@ -709,5 +758,12 @@ public sealed partial class InventarioWpfControl : System.Windows.Controls.UserC
         var brush = new MediaSolidColorBrush(MediaColor.FromRgb(r, g, b));
         brush.Freeze();
         return brush;
+    }
+
+    static Geometry CreateFrozenGeometry(string data)
+    {
+        var geometry = Geometry.Parse(data);
+        geometry.Freeze();
+        return geometry;
     }
 }

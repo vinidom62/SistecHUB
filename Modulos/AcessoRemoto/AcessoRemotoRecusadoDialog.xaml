@@ -14,8 +14,8 @@
         FontFamily="Segoe UI"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
 
-    <Border Background="#FFFFFF"
-            BorderBrush="#E2E8F0"
+    <Border Background="{DynamicResource Theme.CardBg}"
+            BorderBrush="{DynamicResource Theme.BorderSubtle}"
             BorderThickness="1"
             CornerRadius="18"
             Padding="30,26"
@@ -36,15 +36,15 @@
                 <Border Grid.Column="0"
                         Width="48" Height="48"
                         CornerRadius="14"
-                        Background="#FEF2F2"
-                        BorderBrush="#FECACA"
+                        Background="{DynamicResource Theme.DangerSoftBg}"
+                        BorderBrush="{DynamicResource Theme.DangerSoftBorder}"
                         BorderThickness="1"
                         Margin="0,0,14,0"
                         VerticalAlignment="Center">
                     <TextBlock Text="&#xE711;"
                                FontFamily="Segoe MDL2 Assets"
                                FontSize="20"
-                               Foreground="#DC2626"
+                               Foreground="{DynamicResource Theme.DangerText}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"/>
                 </Border>
@@ -53,11 +53,11 @@
                     <TextBlock Text="Solicitação Recusada"
                                FontSize="17.5"
                                FontWeight="Bold"
-                               Foreground="#0F172A"
+                               Foreground="{DynamicResource Theme.TextPrimary}"
                                Margin="0,0,0,2"/>
                     <TextBlock Text="Acesso Remoto Sistec"
                                FontSize="12"
-                               Foreground="#64748B"/>
+                               Foreground="{DynamicResource Theme.TextMuted}"/>
                 </StackPanel>
 
                 <Button Grid.Column="2"
@@ -71,15 +71,15 @@
                     <TextBlock Text="&#xE711;"
                                FontFamily="Segoe MDL2 Assets"
                                FontSize="12"
-                               Foreground="#94A3B8"
+                               Foreground="{DynamicResource Theme.TextSubtle}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"/>
                 </Button>
             </Grid>
 
             <!-- Card Central com a Mensagem Amigável -->
-            <Border Background="#F8FAFC"
-                    BorderBrush="#E2E8F0"
+            <Border Background="{DynamicResource Theme.SurfaceBg}"
+                    BorderBrush="{DynamicResource Theme.BorderSubtle}"
                     BorderThickness="1"
                     CornerRadius="12"
                     Padding="18,16"
@@ -89,7 +89,7 @@
                                Text="A solicitação de acesso remoto foi recusada na máquina do cliente ou o tempo de resposta expirou."
                                FontSize="13.5"
                                LineHeight="20"
-                               Foreground="#1E293B"
+                               Foreground="{DynamicResource Theme.TextHeading}"
                                FontWeight="SemiBold"
                                TextWrapping="Wrap"
                                Margin="0,0,0,10"/>
@@ -97,19 +97,19 @@
                     <TextBlock Text="• Verifique se o cliente na máquina remota recebeu o aviso de permissão na tela."
                                FontSize="12"
                                LineHeight="18"
-                               Foreground="#475569"
+                               Foreground="{DynamicResource Theme.TextBody}"
                                Margin="0,0,0,4"
                                TextWrapping="Wrap"/>
                     <TextBlock Text="• Se a máquina remota possuir acesso não supervisionado, faça login no Angelus para conectar diretamente com a senha fixa."
                                FontSize="12"
                                LineHeight="18"
-                               Foreground="#475569"
+                               Foreground="{DynamicResource Theme.TextBody}"
                                Margin="0,0,0,4"
                                TextWrapping="Wrap"/>
                     <TextBlock Text="• Você pode solicitar que o usuário confirme o ID e tentar a conexão novamente."
                                FontSize="12"
                                LineHeight="18"
-                               Foreground="#475569"
+                               Foreground="{DynamicResource Theme.TextBody}"
                                TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>

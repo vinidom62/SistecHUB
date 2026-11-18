@@ -344,6 +344,47 @@ internal static class AcessoRemotoClipboard
         });
     }
 
+    public static string SanitizeRelativePath(string? relativePath, string? fallbackName)
+    {
+        var raw = string.IsNullOrWhiteSpace(relativePath) ? fallbackName : relativePath;
+        if (string.IsNullOrWhiteSpace(raw))
+            return "arquivo";
+
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var segments = raw.Replace('/', '\\')
+            .Split('\\', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var safeSegments = new List<string>(segments.Length);
+        foreach (var seg in segments)
+        {
+            if (seg == "." || seg == "..")
+                continue;
+
+            // Remove caracteres inválidos ou separadores de volume (ex.: C:) e pontos finais proibidos no Windows
+            var cleaned = new string(seg.Where(ch => !invalidChars.Contains(ch) && ch != ':').ToArray()).Trim().TrimEnd('.', ' ');
+            if (string.IsNullOrWhiteSpace(cleaned) || cleaned == "." || cleaned == "..")
+                continue;
+
+            safeSegments.Add(cleaned);
+        }
+
+        if (safeSegments.Count == 0)
+        {
+            var fallback = Path.GetFileName(fallbackName ?? "");
+            var cleanedFallback = new string(fallback.Where(ch => !invalidChars.Contains(ch) && ch != ':').ToArray()).Trim().TrimEnd('.', ' ');
+            if (!string.IsNullOrWhiteSpace(cleanedFallback) && cleanedFallback != "." && cleanedFallback != "..")
+                safeSegments.Add(cleanedFallback);
+            else
+                safeSegments.Add("arquivo");
+        }
+
+        var result = string.Join("\\", safeSegments);
+        if (result.Length > 259)
+            result = result[..259].TrimEnd('\\', '/', '.', ' ');
+
+        return string.IsNullOrWhiteSpace(result) ? "arquivo" : result;
+    }
+
     public static void ApplyRemoteFilesToLocalClipboard(
         IReadOnlyList<AcessoRemotoClipboardFileItem> items,
         Func<int, Stream?> streamFactory)
@@ -709,10 +750,7 @@ internal sealed class VirtualFileDataObject : ComIDataObject
             BitConverter.GetBytes(sizeHigh).CopyTo(buffer, baseOffset + 64);
             BitConverter.GetBytes(sizeLow).CopyTo(buffer, baseOffset + 68);
 
-            string relPath = string.IsNullOrWhiteSpace(item.RelativePath) ? item.Name : item.RelativePath;
-            relPath = relPath.Replace('/', '\\');
-            if (relPath.Length > 259)
-                relPath = relPath[..259];
+            string relPath = AcessoRemotoClipboard.SanitizeRelativePath(item.RelativePath, item.Name);
 
             byte[] nameBytes = Encoding.Unicode.GetBytes(relPath);
             Array.Copy(nameBytes, 0, buffer, baseOffset + 72, Math.Min(nameBytes.Length, 518));
@@ -854,7 +892,7 @@ internal sealed class ManagedComStream : IStream, IDisposable
 
     public void CopyTo(IStream pstm, long cb, IntPtr pcbRead, IntPtr pcbWritten)
     {
-        byte[] buffer = new byte[64 * 1024];
+        byte[] buffer = new byte[AcessoRemotoProtocol.DefaultFileChunkSize];
         long totalRead = 0;
         long totalWritten = 0;
 

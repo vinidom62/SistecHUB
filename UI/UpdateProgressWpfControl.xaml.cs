@@ -14,15 +14,15 @@ public sealed partial class UpdateProgressWpfControl : System.Windows.Controls.U
     const string CheckGlyph = "\uE73E";
     const string ErrorGlyph = "\uE783";
 
-    static readonly MediaBrush IndigoBadgeBg = CreateFrozenBrush(238, 242, 255);
-    static readonly MediaBrush IndigoBadgeFg = CreateFrozenBrush(79, 70, 229);
+    static MediaBrush IndigoBadgeBg => AppThemeManager.IndigoSoftBg;
+    static MediaBrush IndigoBadgeFg => AppThemeManager.IndigoText;
     static readonly MediaBrush IndigoAccent = CreateFrozenBrush(99, 102, 241);
 
-    static readonly MediaBrush EmeraldBadgeBg = CreateFrozenBrush(220, 252, 231);
-    static readonly MediaBrush EmeraldBadgeFg = CreateFrozenBrush(22, 163, 74);
+    static MediaBrush EmeraldBadgeBg => AppThemeManager.SuccessSoftBg;
+    static MediaBrush EmeraldBadgeFg => AppThemeManager.SuccessText;
 
-    static readonly MediaBrush RedBadgeBg = CreateFrozenBrush(254, 226, 226);
-    static readonly MediaBrush RedBadgeFg = CreateFrozenBrush(220, 38, 38);
+    static MediaBrush RedBadgeBg => AppThemeManager.DangerSoftBg;
+    static MediaBrush RedBadgeFg => AppThemeManager.DangerText;
 
     public event EventHandler? RestartNowClicked;
     public event EventHandler? RetryClicked;

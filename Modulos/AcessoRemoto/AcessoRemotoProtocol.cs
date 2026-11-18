@@ -20,6 +20,10 @@ internal static class AcessoRemotoProtocol
     public const string TypeHostRegistered = "host_registered";
     public const string TypeConnectViewer = "connect_viewer";
     public const string TypeViewerConnected = "viewer_connected";
+    public const string TypeRegisterHostFile = "register_host_file";
+    public const string TypeHostFileRegistered = "host_file_registered";
+    public const string TypeConnectViewerFile = "connect_viewer_file";
+    public const string TypeViewerFileConnected = "viewer_file_connected";
     public const string TypeSessionStarted = "session_started";
     public const string TypeSessionEnded = "session_ended";
     public const string TypeError = "error";
@@ -51,6 +55,8 @@ internal static class AcessoRemotoProtocol
     public const string TypeClipboardFileChunk = "clipboard_file_chunk";
 
     public const string TypeCursorUpdate = "cursor_update";
+
+    public const int DefaultFileChunkSize = 256 * 1024; // 256 KB
 }
 
 internal enum RemoteCursorType : byte
@@ -161,6 +167,10 @@ internal sealed class AcessoRemotoMessage
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? HostToken { get; set; }
 
+    [JsonPropertyName("session_token")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SessionToken { get; set; }
+
     [JsonPropertyName("target_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TargetId { get; set; }
@@ -266,6 +276,14 @@ internal sealed class AcessoRemotoMessage
     [JsonPropertyName("is_last")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? IsLast { get; set; }
+
+    [JsonPropertyName("suppress_list")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SuppressList { get; set; }
+
+    [JsonPropertyName("auto_extract")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AutoExtract { get; set; }
 
     // Área de transferência (Clipboard)
     [JsonPropertyName("clipboard_files")]

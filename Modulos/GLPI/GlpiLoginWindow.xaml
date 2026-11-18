@@ -14,8 +14,8 @@
         FontFamily="Segoe UI"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
 
-    <Border Background="#FFFFFF"
-            BorderBrush="#E2E8F0"
+    <Border Background="{DynamicResource Theme.CardBg}"
+            BorderBrush="{DynamicResource Theme.BorderSubtle}"
             BorderThickness="1"
             CornerRadius="18"
             Padding="30,26"
@@ -36,13 +36,13 @@
                 <Border Grid.Column="0"
                         Width="46" Height="46"
                         CornerRadius="12"
-                        Background="#EEF2FF"
+                        Background="{DynamicResource Theme.IndigoSoftBg}"
                         Margin="0,0,14,0"
                         VerticalAlignment="Center">
                     <TextBlock Text="&#xE77B;"
                                FontFamily="Segoe MDL2 Assets"
                                FontSize="20"
-                               Foreground="#4F46E5"
+                               Foreground="{DynamicResource Theme.IndigoText}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"/>
                 </Border>
@@ -51,11 +51,11 @@
                     <TextBlock Text="Login de Técnico"
                                FontSize="17.5"
                                FontWeight="Bold"
-                               Foreground="#0F172A"
+                               Foreground="{DynamicResource Theme.TextPrimary}"
                                Margin="0,0,0,2"/>
                     <TextBlock Text="Autentique com sua conta Angelus para desbloquear o acesso com senha."
                                FontSize="12"
-                               Foreground="#64748B"
+                               Foreground="{DynamicResource Theme.TextMuted}"
                                TextWrapping="Wrap"/>
                 </StackPanel>
 
@@ -70,7 +70,7 @@
                     <TextBlock Text="&#xE711;"
                                FontFamily="Segoe MDL2 Assets"
                                FontSize="12"
-                               Foreground="#94A3B8"
+                               Foreground="{DynamicResource Theme.TextSubtle}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"/>
                 </Button>
@@ -81,12 +81,12 @@
                 <TextBlock Text="USUÁRIO ANGELUS"
                            FontSize="11"
                            FontWeight="Bold"
-                           Foreground="#64748B"
+                           Foreground="{DynamicResource Theme.TextMuted}"
                            Margin="0,0,0,6"/>
 
                 <Border Height="44"
-                        Background="#FFFFFF"
-                        BorderBrush="#CBD5E1"
+                        Background="{DynamicResource Theme.CardBg}"
+                        BorderBrush="{DynamicResource Theme.BorderStrong}"
                         BorderThickness="1.5"
                         CornerRadius="10">
                     <Grid Margin="12,0">
@@ -99,7 +99,7 @@
                                    Text="&#xE77B;"
                                    FontFamily="Segoe MDL2 Assets"
                                    FontSize="15"
-                                   Foreground="#94A3B8"
+                                   Foreground="{DynamicResource Theme.TextSubtle}"
                                    VerticalAlignment="Center"
                                    Margin="0,0,10,0"/>
 
@@ -110,7 +110,7 @@
                                  Padding="0"
                                  FontSize="14"
                                  FontWeight="SemiBold"
-                                 Foreground="#0F172A"
+                                 Foreground="{DynamicResource Theme.TextPrimary}"
                                  VerticalContentAlignment="Center"
                                  KeyDown="Input_KeyDown"/>
                     </Grid>
@@ -122,12 +122,12 @@
                 <TextBlock Text="SENHA ANGELUS"
                            FontSize="11"
                            FontWeight="Bold"
-                           Foreground="#64748B"
+                           Foreground="{DynamicResource Theme.TextMuted}"
                            Margin="0,0,0,6"/>
 
                 <Border Height="44"
-                        Background="#FFFFFF"
-                        BorderBrush="#CBD5E1"
+                        Background="{DynamicResource Theme.CardBg}"
+                        BorderBrush="{DynamicResource Theme.BorderStrong}"
                         BorderThickness="1.5"
                         CornerRadius="10">
                     <Grid Margin="12,0,4,0">
@@ -141,7 +141,7 @@
                                    Text="&#xE8D7;"
                                    FontFamily="Segoe MDL2 Assets"
                                    FontSize="15"
-                                   Foreground="#94A3B8"
+                                   Foreground="{DynamicResource Theme.TextSubtle}"
                                    VerticalAlignment="Center"
                                    Margin="0,0,10,0"/>
 
@@ -152,7 +152,7 @@
                                          Padding="0"
                                          FontSize="14"
                                          FontWeight="SemiBold"
-                                         Foreground="#0F172A"
+                                         Foreground="{DynamicResource Theme.TextPrimary}"
                                          VerticalContentAlignment="Center"
                                          PasswordChanged="PwdPassword_PasswordChanged"
                                          KeyDown="Input_KeyDown"/>
@@ -163,7 +163,7 @@
                                      Padding="0"
                                      FontSize="14"
                                      FontWeight="SemiBold"
-                                     Foreground="#0F172A"
+                                     Foreground="{DynamicResource Theme.TextPrimary}"
                                      VerticalContentAlignment="Center"
                                      Visibility="Collapsed"
                                      TextChanged="TxtPasswordRevealed_TextChanged"
@@ -182,7 +182,7 @@
                                        Text="&#xE7B3;"
                                        FontFamily="Segoe MDL2 Assets"
                                        FontSize="14"
-                                       Foreground="#64748B"
+                                       Foreground="{DynamicResource Theme.TextMuted}"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Button>
@@ -195,7 +195,7 @@
                 <CheckBox x:Name="ChkRememberPassword"
                           FontSize="13"
                           FontWeight="SemiBold"
-                          Foreground="#334155"
+                          Foreground="{DynamicResource Theme.TextSecondary}"
                           Cursor="Hand"
                           Click="ChkRememberPassword_Click">
                     <TextBlock Text="Lembrar senha nesta máquina"
@@ -204,15 +204,15 @@
                 </CheckBox>
                 <TextBlock Text="Salva o login nesta máquina para que acessos futuros identifiquem você."
                            FontSize="11"
-                           Foreground="#64748B"
+                           Foreground="{DynamicResource Theme.TextMuted}"
                            Margin="24,3,0,0"
                            TextWrapping="Wrap"/>
             </StackPanel>
 
             <!-- Banner de Progresso / Loading -->
             <Border x:Name="ProgressBorder"
-                    Background="#EEF2FF"
-                    BorderBrush="#C7D2FE"
+                    Background="{DynamicResource Theme.IndigoSoftBg}"
+                    BorderBrush="{DynamicResource Theme.IndigoSoftBorder}"
                     BorderThickness="1"
                     CornerRadius="8"
                     Padding="12,10"
@@ -222,22 +222,22 @@
                     <TextBlock Text="&#xE72C;"
                                FontFamily="Segoe MDL2 Assets"
                                FontSize="14"
-                               Foreground="#4F46E5"
+                               Foreground="{DynamicResource Theme.IndigoText}"
                                VerticalAlignment="Center"
                                Margin="0,0,8,0"/>
                     <TextBlock x:Name="TxtProgressMessage"
                                Text="Autenticando no Angelus e capturando dados..."
                                FontSize="12.5"
                                FontWeight="SemiBold"
-                               Foreground="#3730A3"
+                               Foreground="{DynamicResource Theme.IndigoText}"
                                VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
 
             <!-- Banner de Erro -->
             <Border x:Name="ErrorBorder"
-                    Background="#FEF2F2"
-                    BorderBrush="#FCA5A5"
+                    Background="{DynamicResource Theme.DangerSoftBg}"
+                    BorderBrush="{DynamicResource Theme.DangerSoftBorder}"
                     BorderThickness="1"
                     CornerRadius="8"
                     Padding="12,10"
@@ -247,14 +247,14 @@
                     <TextBlock Text="&#xE783;"
                                FontFamily="Segoe MDL2 Assets"
                                FontSize="14"
-                               Foreground="#DC2626"
+                               Foreground="{DynamicResource Theme.DangerText}"
                                VerticalAlignment="Center"
                                Margin="0,0,8,0"/>
                     <TextBlock x:Name="TxtErrorMessage"
                                Text="Erro de autenticação"
                                FontSize="12"
                                FontWeight="SemiBold"
-                               Foreground="#B91C1C"
+                               Foreground="{DynamicResource Theme.DangerText}"
                                TextWrapping="Wrap"
                                VerticalAlignment="Center"/>
                 </StackPanel>
@@ -272,9 +272,9 @@
                         x:Name="BtnCancel"
                         Content="Cancelar"
                         Height="42"
-                        Background="#FFFFFF"
-                        Foreground="#475569"
-                        BorderBrush="#CBD5E1"
+                        Background="{DynamicResource Theme.CardBg}"
+                        Foreground="{DynamicResource Theme.TextBody}"
+                        BorderBrush="{DynamicResource Theme.BorderStrong}"
                         BorderThickness="1"
                         FontSize="13"
                         FontWeight="SemiBold"

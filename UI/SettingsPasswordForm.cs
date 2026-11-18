@@ -14,7 +14,7 @@ internal sealed class SettingsPasswordForm : Form
         string subtitleText = "Digite a senha para abrir as configurações.")
     {
         Text = formTitle;
-        ClientSize = new Size(420, 236);
+        ClientSize = new Size(440, 270);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -47,9 +47,20 @@ internal sealed class SettingsPasswordForm : Form
 
         Shown += (_, _) =>
         {
+            AdjustHeightToContent();
             host.Focus();
             _wpfView.FocusPassword();
         };
+    }
+
+    void AdjustHeightToContent()
+    {
+        var scale = DeviceDpi / 96.0;
+        var widthDip = Math.Max(360, ClientSize.Width / scale);
+        _wpfView.Measure(new System.Windows.Size(widthDip, double.PositiveInfinity));
+        var desiredPx = (int)Math.Ceiling(_wpfView.DesiredSize.Height * scale);
+        if (desiredPx > ClientSize.Height)
+            ClientSize = new Size(ClientSize.Width, desiredPx);
     }
 
     void TryConfirm()
@@ -62,5 +73,6 @@ internal sealed class SettingsPasswordForm : Form
         }
 
         _wpfView.ShowIncorrectPasswordError();
+        AdjustHeightToContent();
     }
 }

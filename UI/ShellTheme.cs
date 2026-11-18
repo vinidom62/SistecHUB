@@ -10,9 +10,9 @@ internal static class ShellTheme
     internal static readonly Color MenuBtnIdle = Color.FromArgb(30, 41, 59);
     internal static readonly Color MenuBtnHover = Color.FromArgb(51, 65, 85);
     internal static readonly Color MenuBtnPress = Color.FromArgb(79, 70, 229);
-    internal static readonly Color MainBg = Color.FromArgb(248, 250, 252);
-    internal static readonly Color TextPrimary = Color.FromArgb(15, 23, 42);
-    internal static readonly Color TextMuted = Color.FromArgb(100, 116, 139);
+    internal static Color MainBg => AppThemeManager.IsDarkMode ? Color.FromArgb(20, 20, 22) : Color.FromArgb(248, 250, 252);
+    internal static Color TextPrimary => AppThemeManager.IsDarkMode ? Color.FromArgb(244, 244, 245) : Color.FromArgb(15, 23, 42);
+    internal static Color TextMuted => AppThemeManager.IsDarkMode ? Color.FromArgb(161, 161, 170) : Color.FromArgb(100, 116, 139);
     internal static readonly Color Accent = Color.FromArgb(99, 102, 241);
 
     internal static Button CreateSidebarMenuButton(string text)

@@ -28,9 +28,12 @@ public partial class SidebarControl : System.Windows.Controls.UserControl
 
     readonly List<NavItemVisuals> _navItems = new();
     string _activeId = "home";
+    bool _isDarkMode;
 
     static readonly SolidColorBrush BrushIdleBg = CreateFrozenBrush("#162033");
     static readonly SolidColorBrush BrushActiveBg = CreateFrozenBrush("#1E293B");
+    static readonly SolidColorBrush BrushDarkIdleBg = CreateFrozenBrush("#18181B");
+    static readonly SolidColorBrush BrushDarkActiveBg = CreateFrozenBrush("#242429");
     static readonly SolidColorBrush BrushActiveBorder = CreateFrozenBrush("#4F46E5");
     static readonly SolidColorBrush BrushIdleIcon = CreateFrozenBrush("#94A3B8");
     static readonly SolidColorBrush BrushActiveIcon = CreateFrozenBrush("#818CF8");
@@ -168,6 +171,45 @@ public partial class SidebarControl : System.Windows.Controls.UserControl
         ApplySelectionVisuals(_activeId);
     }
 
+    public void SetDarkMode(bool isDark)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => SetDarkMode(isDark));
+            return;
+        }
+
+        _isDarkMode = isDark;
+        if (isDark)
+        {
+            var bg = CreateFrozenBrush("#111113");
+            Background = bg;
+            Resources["SidebarBg"] = bg;
+            Resources["HeaderBg"] = CreateFrozenBrush("#0C0C0E");
+            Resources["DividerBrush"] = CreateFrozenBrush("#232328");
+            Resources["DividerStrongBrush"] = CreateFrozenBrush("#2E2E34");
+            Resources["NavHoverBrush"] = CreateFrozenBrush("#27272C");
+            Resources["EntityBgBrush"] = CreateFrozenBrush("#18181B");
+            Resources["EntityBorderBrush"] = CreateFrozenBrush("#2C2C32");
+            Resources["TextMutedBrush"] = CreateFrozenBrush("#71717A");
+        }
+        else
+        {
+            var bg = CreateFrozenBrush("#0F172A");
+            Background = bg;
+            Resources["SidebarBg"] = bg;
+            Resources["HeaderBg"] = CreateFrozenBrush("#0C1220");
+            Resources["DividerBrush"] = CreateFrozenBrush("#1E293B");
+            Resources["DividerStrongBrush"] = CreateFrozenBrush("#334155");
+            Resources["NavHoverBrush"] = CreateFrozenBrush("#25344D");
+            Resources["EntityBgBrush"] = CreateFrozenBrush("#162033");
+            Resources["EntityBorderBrush"] = CreateFrozenBrush("#22304A");
+            Resources["TextMutedBrush"] = CreateFrozenBrush("#64748B");
+        }
+
+        ApplySelectionVisuals(_activeId);
+    }
+
     public void SetActivePage(string id)
     {
         _activeId = id ?? "home";
@@ -179,11 +221,14 @@ public partial class SidebarControl : System.Windows.Controls.UserControl
 
     void ApplySelectionVisuals(string activeId)
     {
+        var idleBg = _isDarkMode ? BrushDarkIdleBg : BrushIdleBg;
+        var activeBg = _isDarkMode ? BrushDarkActiveBg : BrushActiveBg;
+
         foreach (var item in _navItems)
         {
             bool selected = string.Equals(item.Id, activeId, StringComparison.OrdinalIgnoreCase);
             item.ActiveBar.Visibility = selected ? Visibility.Visible : Visibility.Hidden;
-            item.Button.Background = selected ? BrushActiveBg : BrushIdleBg;
+            item.Button.Background = selected ? activeBg : idleBg;
             item.Button.BorderBrush = selected ? BrushActiveBorder : System.Windows.Media.Brushes.Transparent;
             item.IconBlock.Foreground = selected ? BrushActiveIcon : BrushIdleIcon;
             item.TextBlock.Foreground = selected ? BrushActiveText : BrushIdleText;
@@ -192,7 +237,7 @@ public partial class SidebarControl : System.Windows.Controls.UserControl
 
         bool isSettings = string.Equals(activeId, "settings", StringComparison.OrdinalIgnoreCase);
         SettingsActiveBar.Visibility = isSettings ? Visibility.Visible : Visibility.Hidden;
-        BtnSettings.Background = isSettings ? BrushActiveBg : BrushIdleBg;
+        BtnSettings.Background = isSettings ? activeBg : idleBg;
         BtnSettings.BorderBrush = isSettings ? BrushActiveBorder : System.Windows.Media.Brushes.Transparent;
         SettingsIcon.Foreground = isSettings ? BrushActiveIcon : BrushIdleIcon;
         SettingsLabel.Foreground = isSettings ? BrushActiveText : BrushIdleText;

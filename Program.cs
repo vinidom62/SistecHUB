@@ -120,6 +120,7 @@ static class Program
         {
             AppDebugLog.InstallGlobalHandlers();
             ApplicationConfiguration.Initialize();
+            AppThemeManager.Initialize();
             AppDebugLog.LogStartupContext();
             ShowLastUpdateResultIfNeeded();
             WindowsServiceGuard.EnsureRunningOrExit();

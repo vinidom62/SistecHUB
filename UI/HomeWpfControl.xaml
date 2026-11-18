@@ -7,6 +7,62 @@
              SnapsToDevicePixels="True">
 
     <UserControl.Resources>
+        <!-- Estilo do Botão de Modo Noturno (Caixinha compacta só com a lua) -->
+        <Style x:Key="DarkModeToggleButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="#334155"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Width" Value="36"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                Padding="{TemplateBinding Padding}">
+                            <Border.Effect>
+                                <DropShadowEffect Color="#0F172A" BlurRadius="8" ShadowDepth="1" Direction="270" Opacity="0.06"/>
+                            </Border.Effect>
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Tag" Value="Dark">
+                                <Setter TargetName="Bd" Property="Background" Value="#1E1E22"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#323238"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="Tag" Value="Light"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#F1F5F9"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#CBD5E1"/>
+                            </MultiTrigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="Tag" Value="Dark"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#2A2A30"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#484852"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.88"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Estilo do Card de Acesso Remoto (Hover Índigo) -->
         <Style x:Key="RemoteCardButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#FFFFFF"/>
@@ -33,13 +89,40 @@
                                               VerticalAlignment="Stretch"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
+                            <Trigger Property="Tag" Value="Dark">
+                                <Setter TargetName="Bd" Property="Background" Value="#1C1C20"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#2C2C32"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="Tag" Value="Light"/>
+                                </MultiTrigger.Conditions>
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="#6366F1"/>
                                 <Setter TargetName="Bd" Property="Background" Value="#FAFAFE"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
+                            </MultiTrigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="Tag" Value="Dark"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#818CF8"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#232328"/>
+                            </MultiTrigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsPressed" Value="True"/>
+                                    <Condition Property="Tag" Value="Light"/>
+                                </MultiTrigger.Conditions>
                                 <Setter TargetName="Bd" Property="Background" Value="#F1F5F9"/>
-                            </Trigger>
+                            </MultiTrigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsPressed" Value="True"/>
+                                    <Condition Property="Tag" Value="Dark"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#161619"/>
+                            </MultiTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -72,13 +155,40 @@
                                               VerticalAlignment="Stretch"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
+                            <Trigger Property="Tag" Value="Dark">
+                                <Setter TargetName="Bd" Property="Background" Value="#1C1C20"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#2C2C32"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="Tag" Value="Light"/>
+                                </MultiTrigger.Conditions>
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="#10B981"/>
                                 <Setter TargetName="Bd" Property="Background" Value="#FAFCFA"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
+                            </MultiTrigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="Tag" Value="Dark"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#34D399"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#232328"/>
+                            </MultiTrigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsPressed" Value="True"/>
+                                    <Condition Property="Tag" Value="Light"/>
+                                </MultiTrigger.Conditions>
                                 <Setter TargetName="Bd" Property="Background" Value="#F1F5F9"/>
-                            </Trigger>
+                            </MultiTrigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsPressed" Value="True"/>
+                                    <Condition Property="Tag" Value="Dark"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#161619"/>
+                            </MultiTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -86,204 +196,240 @@
         </Style>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollBarVisibility="Disabled">
-        <Grid>
-            <StackPanel HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        MaxWidth="680"
-                        Margin="36,40">
+    <Grid x:Name="RootGrid" Background="#F8FAFC">
+        <!-- Botão de Modo Noturno no canto superior direito (só a lua na caixinha) -->
+        <Button x:Name="BtnToggleDarkMode"
+                Style="{StaticResource DarkModeToggleButtonStyle}"
+                Tag="Light"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Margin="0,20,24,0"
+                Panel.ZIndex="10"
+                ToolTip="Ativar modo noturno"
+                Click="BtnToggleDarkMode_Click">
+            <TextBlock x:Name="IconDarkMode"
+                       Text="&#xE708;"
+                       FontFamily="Segoe MDL2 Assets"
+                       FontSize="15"
+                       Foreground="#475569"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"/>
+        </Button>
 
-                <!-- Linha de detalhe elegante em índigo -->
-                <Border Width="40"
-                        Height="4"
-                        CornerRadius="2"
-                        Background="#6366F1"
-                        HorizontalAlignment="Left"
-                        Margin="0,0,0,18"/>
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+                <StackPanel HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            MaxWidth="680"
+                            Margin="36,40">
 
-                <!-- Saudação dinâmica: "Bom dia, [Nome]!" -->
-                <TextBlock x:Name="TxtGreeting"
-                           Text="Olá"
-                           FontSize="34"
-                           FontWeight="Bold"
-                           Foreground="#0F172A"
-                           Margin="0,0,0,6"/>
+                    <!-- Linha de detalhe elegante em índigo -->
+                    <Border Width="40"
+                            Height="4"
+                            CornerRadius="2"
+                            Background="#6366F1"
+                            HorizontalAlignment="Left"
+                            Margin="0,0,0,18"/>
 
-                <!-- Subtítulo sutil -->
-                <TextBlock Text="O que você precisa fazer agora? Utilize os atalhos rápidos ou navegue pelo menu lateral:"
-                           FontSize="13.5"
-                           Foreground="#64748B"
-                           TextWrapping="Wrap"
-                           Margin="0,0,0,26"/>
+                    <!-- Saudação dinâmica: "Bom dia, [Nome]!" -->
+                    <TextBlock x:Name="TxtGreeting"
+                               Text="Olá"
+                               FontSize="34"
+                               FontWeight="Bold"
+                               Foreground="#0F172A"
+                               Margin="0,0,0,6"/>
 
-                <!-- Grid dos 2 Botões de Ação Rápida -->
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="18"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+                    <!-- Subtítulo sutil -->
+                    <TextBlock x:Name="TxtSubtitle"
+                               Text="O que você precisa fazer agora? Utilize os atalhos rápidos ou navegue pelo menu lateral:"
+                               FontSize="13.5"
+                               Foreground="#64748B"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,26"/>
 
-                    <!-- 1: ABRIR CHAMADO -->
-                    <Button Grid.Column="0"
-                            Style="{StaticResource TicketCardButtonStyle}"
-                            Click="BtnOpenTicket_Click"
-                            ToolTip="Clique para abrir uma nova solicitação de chamado no GLPI">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+                    <!-- Grid dos 2 Botões de Ação Rápida -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="18"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                            <!-- Topo: Ícone e Tag -->
-                            <Grid Grid.Row="0" Margin="0,0,0,16">
-                                <Border Width="46" Height="46"
-                                        CornerRadius="12"
-                                        Background="#DCFCE7"
-                                        HorizontalAlignment="Left">
-                                    <TextBlock Text="&#xE8BD;"
-                                               FontFamily="Segoe MDL2 Assets"
-                                               FontSize="22"
+                        <!-- 1: ABRIR CHAMADO -->
+                        <Button x:Name="BtnOpenTicket"
+                                Grid.Column="0"
+                                Tag="Light"
+                                Style="{StaticResource TicketCardButtonStyle}"
+                                Click="BtnOpenTicket_Click"
+                                ToolTip="Clique para abrir uma nova solicitação de chamado no GLPI">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Topo: Ícone e Tag -->
+                                <Grid Grid.Row="0" Margin="0,0,0,16">
+                                    <Border x:Name="BdTicketIcon"
+                                            Width="46" Height="46"
+                                            CornerRadius="12"
+                                            Background="#DCFCE7"
+                                            HorizontalAlignment="Left">
+                                        <TextBlock x:Name="IconTicketCard"
+                                                   Text="&#xE8BD;"
+                                                   FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="22"
+                                                   Foreground="#16A34A"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
+
+                                    <Border x:Name="BdTicketTag"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Background="#F1F5F9"
+                                            CornerRadius="6"
+                                            Padding="8,3">
+                                        <TextBlock x:Name="TxtTicketTag"
+                                                   Text="SUPORTE TI"
+                                                   FontSize="10"
+                                                   FontWeight="Bold"
+                                                   Foreground="#64748B"/>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Título -->
+                                <TextBlock x:Name="TxtTicketTitle"
+                                           Grid.Row="1"
+                                           Text="Abrir Chamado"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="#0F172A"
+                                           Margin="0,0,0,6"/>
+
+                                <!-- Descrição -->
+                                <TextBlock x:Name="TxtTicketDesc"
+                                           Grid.Row="2"
+                                           Text="Abra uma solicitação de assistência ou relate uma falha técnica para a equipe de TI."
+                                           FontSize="12.5"
+                                           Foreground="#64748B"
+                                           TextWrapping="Wrap"
+                                           LineHeight="18"
+                                           Margin="0,0,0,18"/>
+
+                                <!-- Ação / Link -->
+                                <StackPanel Grid.Row="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtTicketAction"
+                                               Text="Criar solicitação"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
                                                Foreground="#16A34A"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"/>
-                                </Border>
-
-                                <Border HorizontalAlignment="Right"
-                                        VerticalAlignment="Center"
-                                        Background="#F1F5F9"
-                                        CornerRadius="6"
-                                        Padding="8,3">
-                                    <TextBlock Text="SUPORTE TI"
-                                               FontSize="10"
-                                               FontWeight="Bold"
-                                               Foreground="#64748B"/>
-                                </Border>
-                            </Grid>
-
-                            <!-- Título -->
-                            <TextBlock Grid.Row="1"
-                                       Text="Abrir Chamado"
-                                       FontSize="17"
-                                       FontWeight="Bold"
-                                       Foreground="#0F172A"
-                                       Margin="0,0,0,6"/>
-
-                            <!-- Descrição -->
-                            <TextBlock Grid.Row="2"
-                                       Text="Abra uma solicitação de assistência ou relate uma falha técnica para a equipe de TI."
-                                       FontSize="12.5"
-                                       Foreground="#64748B"
-                                       TextWrapping="Wrap"
-                                       LineHeight="18"
-                                       Margin="0,0,0,18"/>
-
-                            <!-- Ação / Link -->
-                            <StackPanel Grid.Row="3" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="Criar solicitação"
-                                           FontSize="13"
-                                           FontWeight="SemiBold"
-                                           Foreground="#16A34A"
-                                           Margin="0,0,6,0"/>
-                                <TextBlock Text="&#xE72A;"
-                                           FontFamily="Segoe MDL2 Assets"
-                                           FontSize="12"
-                                           Foreground="#16A34A"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-
-                    <!-- 2: COPIAR (E ABRIR) ACESSO REMOTO -->
-                    <Button Grid.Column="2"
-                            x:Name="BtnCopyAndOpenRemote"
-                            Style="{StaticResource RemoteCardButtonStyle}"
-                            Click="BtnCopyAndOpenRemote_Click"
-                            ToolTip="Clique para copiar seu ID e abrir o módulo de Acesso Remoto">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-
-                            <!-- Topo: Ícone e Badge com ID -->
-                            <Grid Grid.Row="0" Margin="0,0,0,16">
-                                <Border x:Name="BdRemoteIcon"
-                                        Width="46" Height="46"
-                                        CornerRadius="12"
-                                        Background="#EEF2FF"
-                                        HorizontalAlignment="Left">
-                                    <TextBlock x:Name="IconRemoteCard"
-                                               Text="&#xE7F4;"
+                                               Margin="0,0,6,0"/>
+                                    <TextBlock x:Name="IconTicketArrow"
+                                               Text="&#xE72A;"
                                                FontFamily="Segoe MDL2 Assets"
-                                               FontSize="22"
-                                               Foreground="#6366F1"
-                                               HorizontalAlignment="Center"
+                                               FontSize="12"
+                                               Foreground="#16A34A"
                                                VerticalAlignment="Center"/>
-                                </Border>
-
-                                <Border x:Name="BdQuickIdBadge"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Center"
-                                        Background="#EEF2FF"
-                                        CornerRadius="6"
-                                        Padding="8,3">
-                                    <TextBlock x:Name="TxtQuickIdBadge"
-                                               Text="ACESSO REMOTO"
-                                               FontSize="11"
-                                               FontWeight="Bold"
-                                               Foreground="#4F46E5"/>
-                                </Border>
+                                </StackPanel>
                             </Grid>
+                        </Button>
 
-                            <!-- Título -->
-                            <TextBlock Grid.Row="1"
-                                       Text="Acesso Remoto"
-                                       FontSize="17"
-                                       FontWeight="Bold"
-                                       Foreground="#0F172A"
-                                       Margin="0,0,0,6"/>
+                        <!-- 2: COPIAR (E ABRIR) ACESSO REMOTO -->
+                        <Button Grid.Column="2"
+                                x:Name="BtnCopyAndOpenRemote"
+                                Tag="Light"
+                                Style="{StaticResource RemoteCardButtonStyle}"
+                                Click="BtnCopyAndOpenRemote_Click"
+                                ToolTip="Clique para copiar seu ID e abrir o módulo de Acesso Remoto">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
 
-                            <!-- Descrição -->
-                            <TextBlock Grid.Row="2"
-                                       Text="Copia o ID deste computador e abre imediatamente a tela de conexão para atendimento."
-                                       FontSize="12.5"
-                                       Foreground="#64748B"
-                                       TextWrapping="Wrap"
-                                       LineHeight="18"
-                                       Margin="0,0,0,18"/>
+                                <!-- Topo: Ícone e Badge com ID -->
+                                <Grid Grid.Row="0" Margin="0,0,0,16">
+                                    <Border x:Name="BdRemoteIcon"
+                                            Width="46" Height="46"
+                                            CornerRadius="12"
+                                            Background="#EEF2FF"
+                                            HorizontalAlignment="Left">
+                                        <TextBlock x:Name="IconRemoteCard"
+                                                   Text="&#xE7F4;"
+                                                   FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="22"
+                                                   Foreground="#6366F1"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
 
-                            <!-- Ação / Link -->
-                            <StackPanel Grid.Row="3" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Name="TxtRemoteActionText"
-                                           Text="Copiar ID e abrir tela"
-                                           FontSize="13"
-                                           FontWeight="SemiBold"
-                                           Foreground="#4F46E5"
-                                           Margin="0,0,6,0"/>
-                                <TextBlock x:Name="IconRemoteActionArrow"
-                                           Text="&#xE72A;"
-                                           FontFamily="Segoe MDL2 Assets"
-                                           FontSize="12"
-                                           Foreground="#4F46E5"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                </Grid>
+                                    <Border x:Name="BdQuickIdBadge"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Background="#EEF2FF"
+                                            CornerRadius="6"
+                                            Padding="8,3">
+                                        <TextBlock x:Name="TxtQuickIdBadge"
+                                                   Text="ACESSO REMOTO"
+                                                   FontSize="11"
+                                                   FontWeight="Bold"
+                                                   Foreground="#4F46E5"/>
+                                    </Border>
+                                </Grid>
 
-                <!-- Dica sutil no rodapé -->
-                <TextBlock Text="Dica: O ID de acesso remoto também pode ser consultado a qualquer momento no menu lateral."
-                           FontSize="11.5"
-                           Foreground="#94A3B8"
-                           Margin="0,22,0,0"
-                           HorizontalAlignment="Center"/>
-            </StackPanel>
-        </Grid>
-    </ScrollViewer>
+                                <!-- Título -->
+                                <TextBlock x:Name="TxtRemoteTitle"
+                                           Grid.Row="1"
+                                           Text="Acesso Remoto"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="#0F172A"
+                                           Margin="0,0,0,6"/>
+
+                                <!-- Descrição -->
+                                <TextBlock x:Name="TxtRemoteDesc"
+                                           Grid.Row="2"
+                                           Text="Copia o ID deste computador e abre imediatamente a tela de conexão para atendimento."
+                                           FontSize="12.5"
+                                           Foreground="#64748B"
+                                           TextWrapping="Wrap"
+                                           LineHeight="18"
+                                           Margin="0,0,0,18"/>
+
+                                <!-- Ação / Link -->
+                                <StackPanel Grid.Row="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtRemoteActionText"
+                                               Text="Copiar ID e abrir tela"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               Foreground="#4F46E5"
+                                               Margin="0,0,6,0"/>
+                                    <TextBlock x:Name="IconRemoteActionArrow"
+                                               Text="&#xE72A;"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               FontSize="12"
+                                               Foreground="#4F46E5"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                    </Grid>
+
+                    <!-- Dica sutil no rodapé -->
+                    <TextBlock x:Name="TxtFooterTip"
+                               Text="Dica: O ID de acesso remoto também pode ser consultado a qualquer momento no menu lateral."
+                               FontSize="11.5"
+                               Foreground="#94A3B8"
+                               Margin="0,22,0,0"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
 </UserControl>

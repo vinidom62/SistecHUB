@@ -1,4 +1,4 @@
-﻿<Window x:Class="SistecHub.Modulos.AcessoRemoto.AcessoRemotoPromptForm"
+<Window x:Class="SistecHub.Modulos.AcessoRemoto.AcessoRemotoPromptForm"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Solicitação de Acesso Remoto"
@@ -12,7 +12,6 @@
 
     <Window.Resources>
         <SolidColorBrush x:Key="Accent" Color="#6366F1"/>
-        <SolidColorBrush x:Key="Muted" Color="#64748B"/>
 
         <Style x:Key="ActionButton" TargetType="Button">
             <Setter Property="Height" Value="46"/>
@@ -48,7 +47,7 @@
             <Setter Property="Width" Value="34"/>
             <Setter Property="Height" Value="34"/>
             <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="Background" Value="#E2E8F0"/>
+            <Setter Property="Background" Value="{DynamicResource Theme.StrongBg}"/>
             <Setter Property="Margin" Value="0,0,12,0"/>
         </Style>
     </Window.Resources>
@@ -80,17 +79,12 @@
 
     <Grid Margin="24">
         <Border x:Name="Card" CornerRadius="22" Padding="30,28,30,26"
-                BorderBrush="#E2E8F0" BorderThickness="1"
+                Background="{DynamicResource Theme.CardBg}"
+                BorderBrush="{DynamicResource Theme.BorderSubtle}" BorderThickness="1"
                 RenderTransformOrigin="0.5,0.5" MouseLeftButtonDown="Card_MouseLeftButtonDown">
             <Border.RenderTransform>
                 <ScaleTransform x:Name="CardScale"/>
             </Border.RenderTransform>
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#FFFFFF" Offset="0"/>
-                    <GradientStop Color="#F8FAFC" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
             <Border.Effect>
                 <DropShadowEffect BlurRadius="34" ShadowDepth="8" Direction="270" Opacity="0.28" Color="#000000"/>
             </Border.Effect>
@@ -109,7 +103,7 @@
                             <ScaleTransform x:Name="PulseScale"/>
                         </Ellipse.RenderTransform>
                     </Ellipse>
-                    <Ellipse Margin="6" StrokeThickness="3" Stroke="#CBD5E1">
+                    <Ellipse Margin="6" StrokeThickness="3" Stroke="{DynamicResource Theme.BorderStrong}">
                         <Ellipse.Fill>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                 <GradientStop Color="#6366F1" Offset="0"/>
@@ -121,27 +115,27 @@
                     <TextBlock x:Name="AvatarInitials" Text="TS" FontSize="34" FontWeight="Bold"
                                Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     <Border Width="26" Height="26" CornerRadius="13" Background="#10B981"
-                            BorderBrush="#F8FAFC" BorderThickness="3"
+                            BorderBrush="{DynamicResource Theme.BorderSubtle}" BorderThickness="3"
                             HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10"/>
                 </Grid>
 
                 <!-- Nome -->
                 <TextBlock x:Name="LblName" Text="Técnico de Suporte" FontSize="22" FontWeight="Bold"
-                           Foreground="#0F172A" HorizontalAlignment="Center" TextAlignment="Center"
+                           Foreground="{DynamicResource Theme.TextPrimary}" HorizontalAlignment="Center" TextAlignment="Center"
                            TextTrimming="CharacterEllipsis"/>
                 <TextBlock Text="Sistec Consultoria • Suporte técnico" FontSize="12.5"
-                           Foreground="{StaticResource Muted}" HorizontalAlignment="Center" Margin="0,3,0,16"/>
+                           Foreground="{DynamicResource Theme.TextMuted}" HorizontalAlignment="Center" Margin="0,3,0,16"/>
 
                 <TextBlock Text="deseja acessar e controlar este computador."
-                           FontSize="14" Foreground="#475569" HorizontalAlignment="Center"
+                           FontSize="14" Foreground="{DynamicResource Theme.TextBody}" HorizontalAlignment="Center"
                            Margin="0,0,0,18"/>
 
                 <!-- Permissões -->
-                <Border CornerRadius="14" Background="#F8FAFC" BorderBrush="#E2E8F0"
+                <Border CornerRadius="14" Background="{DynamicResource Theme.SurfaceBg}" BorderBrush="{DynamicResource Theme.BorderSubtle}"
                         BorderThickness="1" Padding="16,14">
                     <StackPanel>
                         <TextBlock Text="O QUE SERÁ PERMITIDO" FontSize="10.5" FontWeight="Bold"
-                                   Foreground="{StaticResource Muted}" Margin="0,0,0,10"/>
+                                   Foreground="{DynamicResource Theme.TextMuted}" Margin="0,0,0,10"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                             <Border Style="{StaticResource PermIcon}">
@@ -149,8 +143,8 @@
                                            Foreground="#6366F1" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Visualizar sua tela" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A"/>
-                                <TextBlock Text="Em tempo real, incluindo todos os monitores" FontSize="11.5" Foreground="{StaticResource Muted}"/>
+                                <TextBlock Text="Visualizar sua tela" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource Theme.TextPrimary}"/>
+                                <TextBlock Text="Em tempo real, incluindo todos os monitores" FontSize="11.5" Foreground="{DynamicResource Theme.TextMuted}"/>
                             </StackPanel>
                         </StackPanel>
 
@@ -160,8 +154,8 @@
                                            Foreground="#6366F1" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Controlar mouse e teclado" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A"/>
-                                <TextBlock Text="Executar ações como se estivesse no computador" FontSize="11.5" Foreground="{StaticResource Muted}"/>
+                                <TextBlock Text="Controlar mouse e teclado" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource Theme.TextPrimary}"/>
+                                <TextBlock Text="Executar ações como se estivesse no computador" FontSize="11.5" Foreground="{DynamicResource Theme.TextMuted}"/>
                             </StackPanel>
                         </StackPanel>
 
@@ -171,8 +165,8 @@
                                            Foreground="#6366F1" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Transferir arquivos" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A"/>
-                                <TextBlock Text="Enviar e receber arquivos para o suporte" FontSize="11.5" Foreground="{StaticResource Muted}"/>
+                                <TextBlock Text="Transferir arquivos" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource Theme.TextPrimary}"/>
+                                <TextBlock Text="Enviar e receber arquivos para o suporte" FontSize="11.5" Foreground="{DynamicResource Theme.TextMuted}"/>
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
@@ -180,7 +174,7 @@
 
                 <!-- Contagem regressiva -->
                 <Grid Margin="0,18,0,0">
-                    <Border Height="4" CornerRadius="2" Background="#E2E8F0"/>
+                    <Border Height="4" CornerRadius="2" Background="{DynamicResource Theme.StrongBg}"/>
                     <Border x:Name="BarFill" Height="4" CornerRadius="2" HorizontalAlignment="Left"
                             RenderTransformOrigin="0,0.5" Background="{StaticResource Accent}">
                         <Border.RenderTransform>
@@ -189,7 +183,7 @@
                     </Border>
                 </Grid>
                 <TextBlock x:Name="LblTimer" Text="Recusa automática em 45s" FontSize="11.5"
-                           Foreground="{StaticResource Muted}" HorizontalAlignment="Center" Margin="0,8,0,18"/>
+                           Foreground="{DynamicResource Theme.TextMuted}" HorizontalAlignment="Center" Margin="0,8,0,18"/>
 
                 <!-- Botões -->
                 <Grid>
@@ -199,8 +193,8 @@
                         <ColumnDefinition Width="1.3*"/>
                     </Grid.ColumnDefinitions>
                     <Button x:Name="BtnReject" Grid.Column="0" Content="Recusar" Click="BtnReject_Click"
-                            Style="{StaticResource ActionButton}" Background="#FEE2E2"
-                            BorderBrush="#FCA5A5" BorderThickness="1" Foreground="#B91C1C"/>
+                            Style="{StaticResource ActionButton}" Background="{DynamicResource Theme.DangerSoftBg}"
+                            BorderBrush="{DynamicResource Theme.DangerSoftBorder}" BorderThickness="1" Foreground="{DynamicResource Theme.DangerText}"/>
                     <Button x:Name="BtnAccept" Grid.Column="2" Content="Permitir acesso" Click="BtnAccept_Click"
                             Style="{StaticResource ActionButton}">
                         <Button.Background>
@@ -213,7 +207,7 @@
                 </Grid>
 
                 <TextBlock Text="Você pode encerrar a sessão a qualquer momento pelo chat."
-                           FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+                           FontSize="11" Foreground="{DynamicResource Theme.TextMuted}" HorizontalAlignment="Center" Margin="0,14,0,0"/>
             </StackPanel>
         </Border>
     </Grid>

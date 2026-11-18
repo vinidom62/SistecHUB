@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using SistecHub.Modulos.GLPI;
+using SistecHub.UI;
 using MediaBrush = System.Windows.Media.Brush;
 using MediaColor = System.Windows.Media.Color;
 using MediaSolidColorBrush = System.Windows.Media.SolidColorBrush;
@@ -19,9 +20,9 @@ public sealed partial class ChamadosWpfControl : System.Windows.Controls.UserCon
     public event EventHandler? PrevPageClicked;
     public event EventHandler? NextPageClicked;
 
-    static readonly MediaBrush PrimaryTextBrush = CreateFrozenBrush(15, 23, 42);
-    static readonly MediaBrush MutedTextBrush = CreateFrozenBrush(100, 116, 139);
-    static readonly MediaBrush ErrorTextBrush = CreateFrozenBrush(220, 38, 38);
+    static MediaBrush PrimaryTextBrush => AppThemeManager.TextPrimary;
+    static MediaBrush MutedTextBrush => AppThemeManager.TextMuted;
+    static MediaBrush ErrorTextBrush => AppThemeManager.DangerText;
     static readonly MediaBrush AccentBrush = CreateFrozenBrush(99, 102, 241);
 
     public ChamadosWpfControl()
@@ -43,6 +44,7 @@ public sealed partial class ChamadosWpfControl : System.Windows.Controls.UserCon
             : isMuted
                 ? MutedTextBrush
                 : PrimaryTextBrush;
+        AppThemeManager.RefreshIfDark(TxtEntityName);
     }
 
     public void SetLastUpdateText(string text)
@@ -87,14 +89,14 @@ public sealed partial class ChamadosWpfControl : System.Windows.Controls.UserCon
             }
 
             TxtStatusCategory.Text = "ÚLTIMA SINCRONIZAÇÃO";
-            TxtLastUpdate.Foreground = CreateFrozenBrush(30, 41, 59);
+            TxtLastUpdate.Foreground = AppThemeManager.TextHeading;
             StatusDotContainer.Background = CreateFrozenBrush(16, 185, 129);
             return;
         }
 
         TxtStatusCategory.Text = "ÚLTIMA SINCRONIZAÇÃO";
         TxtLastUpdate.Text = text;
-        TxtLastUpdate.Foreground = CreateFrozenBrush(30, 41, 59);
+        TxtLastUpdate.Foreground = AppThemeManager.TextHeading;
         StatusDotContainer.Background = CreateFrozenBrush(16, 185, 129);
     }
 
@@ -120,7 +122,7 @@ public sealed partial class ChamadosWpfControl : System.Windows.Controls.UserCon
         else
         {
             TxtRefreshBtnLabel.Text = "Atualizar";
-            TxtRefreshBtnLabel.Foreground = CreateFrozenBrush(51, 65, 85);
+            TxtRefreshBtnLabel.Foreground = AppThemeManager.TextSecondary;
             StopSpinning();
         }
     }
@@ -155,7 +157,7 @@ public sealed partial class ChamadosWpfControl : System.Windows.Controls.UserCon
 
         RefreshRotateTransform.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty, null);
         RefreshRotateTransform.Angle = 0;
-        IconRefresh.Foreground = CreateFrozenBrush(51, 65, 85);
+        IconRefresh.Foreground = AppThemeManager.TextSecondary;
     }
 
     public void SetCounts(GlpiTicketCounts counts)

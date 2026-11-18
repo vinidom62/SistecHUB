@@ -25,14 +25,14 @@ public sealed partial class SettingsWpfControl : System.Windows.Controls.UserCon
     public event EventHandler? SaveClicked;
     public event EventHandler? BloqueioRemotoClicked;
 
-    static readonly MediaBrush LockedFieldBgBrush = CreateFrozenBrush(241, 245, 249);
-    static readonly MediaBrush UnlockedFieldBgBrush = CreateFrozenBrush(255, 255, 255);
+    static MediaBrush LockedFieldBgBrush => AppThemeManager.SubtleBg;
+    static MediaBrush UnlockedFieldBgBrush => AppThemeManager.CardBg;
     static readonly MediaBrush AccentBrush = CreateFrozenBrush(99, 102, 241);
-    static readonly MediaBrush DangerBrush = CreateFrozenBrush(185, 28, 28);
-    static readonly MediaBrush BadgeLiberadoBgBrush = CreateFrozenBrush(220, 252, 231);
-    static readonly MediaBrush BadgeLiberadoFgBrush = CreateFrozenBrush(22, 163, 74);
-    static readonly MediaBrush BadgeBloqueadoBgBrush = CreateFrozenBrush(254, 226, 226);
-    static readonly MediaBrush BadgeBloqueadoFgBrush = CreateFrozenBrush(220, 38, 38);
+    static MediaBrush DangerBrush => AppThemeManager.DangerText;
+    static MediaBrush BadgeLiberadoBgBrush => AppThemeManager.SuccessSoftBg;
+    static MediaBrush BadgeLiberadoFgBrush => AppThemeManager.SuccessText;
+    static MediaBrush BadgeBloqueadoBgBrush => AppThemeManager.DangerSoftBg;
+    static MediaBrush BadgeBloqueadoFgBrush => AppThemeManager.DangerText;
 
     public SettingsWpfControl()
     {
@@ -140,6 +140,8 @@ public sealed partial class SettingsWpfControl : System.Windows.Controls.UserCon
         BdGlpiMachineId.Background = unlocked ? UnlockedFieldBgBrush : LockedFieldBgBrush;
         TxtMachineIdLockGlyph.Text = unlocked ? UnlockGlyph : LockGlyph;
         TxtMachineIdLockGlyph.Foreground = unlocked ? DangerBrush : AccentBrush;
+        AppThemeManager.RefreshIfDark(BdGlpiMachineId);
+        AppThemeManager.RefreshIfDark(TxtMachineIdLockGlyph);
     }
 
     public void SetEntityComboEnabled(bool enabled)

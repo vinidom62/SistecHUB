@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using SistecHub.UI;
 using MediaBrush = System.Windows.Media.Brush;
 using MediaColor = System.Windows.Media.Color;
 using MediaSolidColorBrush = System.Windows.Media.SolidColorBrush;
@@ -29,13 +30,13 @@ public sealed partial class AberturaChamadoWpfControl : System.Windows.Controls.
     public event EventHandler? SolicitarChamadoClicked;
     public event EventHandler? AnyDeskTextChangedByUser;
 
-    static readonly MediaBrush WhiteBrush = CreateFrozenBrush(255, 255, 255);
-    static readonly MediaBrush DisabledFieldBgBrush = CreateFrozenBrush(226, 232, 240);
-    static readonly MediaBrush PrimaryTextBrush = CreateFrozenBrush(15, 23, 42);
-    static readonly MediaBrush MutedTextBrush = CreateFrozenBrush(100, 116, 139);
-    static readonly MediaBrush IndigoBrush = CreateFrozenBrush(67, 56, 202);
-    static readonly MediaBrush PastelRedBgBrush = CreateFrozenBrush(254, 226, 226);
-    static readonly MediaBrush PastelRedActiveBgBrush = CreateFrozenBrush(254, 202, 202);
+    static MediaBrush WhiteBrush => AppThemeManager.CardBg;
+    static MediaBrush DisabledFieldBgBrush => AppThemeManager.StrongBg;
+    static MediaBrush PrimaryTextBrush => AppThemeManager.TextPrimary;
+    static MediaBrush MutedTextBrush => AppThemeManager.TextMuted;
+    static MediaBrush IndigoBrush => AppThemeManager.IndigoText;
+    static MediaBrush PastelRedBgBrush => AppThemeManager.DangerSoftBg;
+    static MediaBrush PastelRedActiveBgBrush => AppThemeManager.DangerHoverBg;
 
     public AberturaChamadoWpfControl()
     {

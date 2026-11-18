@@ -188,7 +188,9 @@ internal static class InventarioSnapshotCoordinator
                 null,
                 ui.OsStatusAtivacao,
                 ui.OsChaveAtivacao,
-                ui.OsCanalLicenca)
+                !string.IsNullOrWhiteSpace(ui.OsCanalLicenca)
+                    ? ui.OsCanalLicenca
+                    : InventarioMonitorOsReader.ReadSistemaOperacional().CanalLicenca)
             : InventarioMonitorOsReader.ReadSistemaOperacional();
 
         return new(

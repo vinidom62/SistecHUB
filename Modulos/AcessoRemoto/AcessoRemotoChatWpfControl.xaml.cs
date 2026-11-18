@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using SistecHub.UI;
 using MediaBrush = System.Windows.Media.Brush;
 using MediaColor = System.Windows.Media.Color;
 using MediaSolidColorBrush = System.Windows.Media.SolidColorBrush;
@@ -49,10 +50,10 @@ public sealed partial class AcessoRemotoChatWpfControl : System.Windows.Controls
         BtnSend.IsEnabled = false;
         HintChatInput.Text = "A sessão foi encerrada.";
         PingDot.Fill = CreateFrozenBrush(239, 68, 68);
-        PingBadge.Background = CreateFrozenBrush(254, 226, 226);
-        PingBadge.BorderBrush = CreateFrozenBrush(254, 202, 202);
+        PingBadge.Background = AppThemeManager.DangerSoftBg;
+        PingBadge.BorderBrush = AppThemeManager.DangerSoftBorder;
         TxtPingValue.Text = "Encerrado";
-        TxtPingValue.Foreground = CreateFrozenBrush(185, 28, 28);
+        TxtPingValue.Foreground = AppThemeManager.DangerText;
         PingBadge.ToolTip = "Atendimento remoto encerrado";
         UpdateInputHint();
     }
@@ -83,25 +84,25 @@ public sealed partial class AcessoRemotoChatWpfControl : System.Windows.Controls
         if (ms < 60)
         {
             PingDot.Fill = CreateFrozenBrush(16, 185, 129); // #10B981 Emerald
-            PingBadge.Background = CreateFrozenBrush(236, 253, 245); // #ECFDF5
-            PingBadge.BorderBrush = CreateFrozenBrush(167, 243, 208); // #A7F3D0
-            TxtPingValue.Foreground = CreateFrozenBrush(5, 150, 105); // #059669
+            PingBadge.Background = AppThemeManager.SuccessSoftBg;
+            PingBadge.BorderBrush = AppThemeManager.SuccessSoftBorder;
+            TxtPingValue.Foreground = AppThemeManager.SuccessText;
             PingBadge.ToolTip = $"Conexão Excelente: {ms} ms de latência";
         }
         else if (ms < 150)
         {
             PingDot.Fill = CreateFrozenBrush(245, 158, 11); // #F59E0B Amber
-            PingBadge.Background = CreateFrozenBrush(254, 243, 199); // #FEF3C7
-            PingBadge.BorderBrush = CreateFrozenBrush(253, 230, 138); // #FDE68A
-            TxtPingValue.Foreground = CreateFrozenBrush(217, 119, 6); // #D97706
+            PingBadge.Background = AppThemeManager.WarningSoftBg;
+            PingBadge.BorderBrush = AppThemeManager.WarningSoftBorder;
+            TxtPingValue.Foreground = AppThemeManager.WarningText;
             PingBadge.ToolTip = $"Conexão Boa: {ms} ms de latência";
         }
         else
         {
             PingDot.Fill = CreateFrozenBrush(239, 68, 68); // #EF4444 Red
-            PingBadge.Background = CreateFrozenBrush(254, 226, 226); // #FEE2E2
-            PingBadge.BorderBrush = CreateFrozenBrush(254, 202, 202); // #FECACA
-            TxtPingValue.Foreground = CreateFrozenBrush(220, 38, 38); // #DC2626
+            PingBadge.Background = AppThemeManager.DangerSoftBg;
+            PingBadge.BorderBrush = AppThemeManager.DangerSoftBorder;
+            TxtPingValue.Foreground = AppThemeManager.DangerText;
             PingBadge.ToolTip = $"Latência Alta: {ms} ms de latência";
         }
     }
@@ -231,11 +232,11 @@ public sealed partial class AcessoRemotoChatWpfControl : System.Windows.Controls
                 BubbleAlignment = System.Windows.HorizontalAlignment.Center;
                 BubbleCornerRadius = new System.Windows.CornerRadius(10);
                 BubbleBorderThickness = new Thickness(0);
-                BubbleBackground = CreateFrozenBrush(241, 245, 249);
-                BubbleBorderBrush = CreateFrozenBrush(226, 232, 240);
-                SenderForeground = CreateFrozenBrush(100, 116, 139);
-                TextForeground = CreateFrozenBrush(100, 116, 139);
-                TimeForeground = CreateFrozenBrush(148, 163, 184);
+                BubbleBackground = AppThemeManager.SubtleBg;
+                BubbleBorderBrush = AppThemeManager.BorderSubtle;
+                SenderForeground = AppThemeManager.TextMuted;
+                TextForeground = AppThemeManager.TextMuted;
+                TimeForeground = AppThemeManager.TextSubtle;
                 ShadowOpacity = 0;
             }
             else
@@ -248,11 +249,11 @@ public sealed partial class AcessoRemotoChatWpfControl : System.Windows.Controls
                     BubbleAlignment = System.Windows.HorizontalAlignment.Left;
                     BubbleCornerRadius = new System.Windows.CornerRadius(14, 14, 14, 2);
                     BubbleBorderThickness = new Thickness(1);
-                    BubbleBackground = CreateFrozenBrush(255, 255, 255);
-                    BubbleBorderBrush = CreateFrozenBrush(226, 232, 240);
-                    SenderForeground = CreateFrozenBrush(79, 70, 229); // #4F46E5 Indigo
-                    TextForeground = CreateFrozenBrush(15, 23, 42); // #0F172A
-                    TimeForeground = CreateFrozenBrush(148, 163, 184); // #94A3B8
+                    BubbleBackground = AppThemeManager.CardBg;
+                    BubbleBorderBrush = AppThemeManager.BorderSubtle;
+                    SenderForeground = AppThemeManager.IndigoText;
+                    TextForeground = AppThemeManager.TextPrimary;
+                    TimeForeground = AppThemeManager.TextSubtle;
                     ShadowOpacity = 0.05;
                 }
                 else

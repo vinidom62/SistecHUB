@@ -1,7 +1,7 @@
 <UserControl x:Class="SistecHub.UI.InitialSetupWpfControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#F8FAFC"
+             Background="{DynamicResource Theme.PageBg}"
              FontFamily="Segoe UI"
              UseLayoutRounding="True"
              SnapsToDevicePixels="True">
@@ -49,19 +49,19 @@
             <TextBlock Text="Configuração inicial"
                        FontSize="24"
                        FontWeight="Bold"
-                       Foreground="#0F172A"
+                       Foreground="{DynamicResource Theme.TextPrimary}"
                        Margin="0,0,0,4"/>
 
             <TextBlock x:Name="TxtStepIndicator"
                        Text="Passo 1 de 2"
                        FontSize="12"
-                       Foreground="#64748B"
+                       Foreground="{DynamicResource Theme.TextMuted}"
                        Margin="0,0,0,4"/>
 
             <TextBlock x:Name="TxtSubtitle"
                        Text="Indique o user token do GLPI para continuar."
                        FontSize="13.5"
-                       Foreground="#64748B"
+                       Foreground="{DynamicResource Theme.TextMuted}"
                        TextWrapping="Wrap"
                        Margin="0,0,0,20"/>
 
@@ -69,15 +69,15 @@
                        Text="User token"
                        FontSize="13"
                        FontWeight="SemiBold"
-                       Foreground="#0F172A"
+                       Foreground="{DynamicResource Theme.TextPrimary}"
                        Margin="0,0,0,6"/>
 
             <!-- Campo Token (Passo 1) -->
             <Border x:Name="BdTokenInput"
                     Width="480"
                     Height="36"
-                    Background="#FFFFFF"
-                    BorderBrush="#CBD5E1"
+                    Background="{DynamicResource Theme.CardBg}"
+                    BorderBrush="{DynamicResource Theme.BorderStrong}"
                     BorderThickness="1"
                     CornerRadius="8"
                     Margin="0,0,0,20">
@@ -86,7 +86,7 @@
                              BorderThickness="0"
                              Padding="10,0"
                              FontSize="13.5"
-                             Foreground="#0F172A"
+                             Foreground="{DynamicResource Theme.TextPrimary}"
                              VerticalContentAlignment="Center"
                              KeyDown="Input_KeyDown"/>
             </Border>
@@ -96,9 +96,9 @@
                       Width="480"
                       Height="36"
                       FontSize="13.5"
-                      Foreground="#0F172A"
-                      Background="#FFFFFF"
-                      BorderBrush="#CBD5E1"
+                      Foreground="{DynamicResource Theme.TextPrimary}"
+                      Background="{DynamicResource Theme.CardBg}"
+                      BorderBrush="{DynamicResource Theme.BorderStrong}"
                       VerticalContentAlignment="Center"
                       MaxDropDownHeight="360"
                       Margin="0,0,0,20"

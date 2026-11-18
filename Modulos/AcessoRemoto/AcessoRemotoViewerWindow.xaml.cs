@@ -459,7 +459,7 @@ public partial class AcessoRemotoViewerWindow : Window
     {
         if (msg == AcessoRemotoClipboard.WM_CLIPBOARDUPDATE)
         {
-            if (_isConnected && !AcessoRemotoClipboard.ShouldIgnoreClipboardChange())
+            if (_isConnected && _isSessionAccepted && !AcessoRemotoClipboard.ShouldIgnoreClipboardChange())
             {
                 OnLocalViewerClipboardChanged();
             }
@@ -610,6 +610,26 @@ public partial class AcessoRemotoViewerWindow : Window
 
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
+    private ClientWebSocket? _wsFile;
+    private CancellationTokenSource? _ctsFile;
+    private readonly SemaphoreSlim _wsFileSendLock = new(1, 1);
+    private readonly object _fileChannelSync = new();
+    private readonly object _downloadSync = new();
+    private Task? _fileChannelConnectTask;
+    private volatile bool _isFileChannelReady;
+    private volatile bool _fileChannelUnsupportedByServer;
+    private long _lastFileChannelAttemptTick;
+    private string? _sessionToken;
+    private string _connectedServerUrl = "";
+    private string _connectedTargetId = "";
+    private string _connectedPassword = "";
+    private byte[]? _latestMouseMovePacket;
+
+    private sealed record PendingVideoFrame(BitmapImage Bitmap, int Width, int Height);
+    private PendingVideoFrame? _pendingFrame;
+    private int _frameRenderScheduled;
+    private long _lastDownloadUiTick;
+
     private bool _isConnected;
     private int _remoteWidth;
     private int _remoteHeight;
@@ -625,6 +645,12 @@ public partial class AcessoRemotoViewerWindow : Window
     private string _currentRemotePath = "C:\\";
     private FileStream? _downloadStream;
     private string _downloadDestPath = "";
+    private string? _activeDownloadTransferId;
+    private bool _isSessionAccepted;
+    private bool _hostSupportsAutoExtract;
+    private volatile bool _isBatchUploading;
+    private int _pendingInputPackets;
+    private CancellationTokenSource? _toastHideCts;
 
     private const byte OpFrame = 0x01;
     private const byte OpInput = 0x02;
@@ -784,6 +810,12 @@ public partial class AcessoRemotoViewerWindow : Window
             return;
         }
 
+        _connectedServerUrl = serverUrl;
+        _connectedTargetId = targetId;
+        _connectedPassword = password;
+        _sessionToken = null;
+        CloseFileChannelInternal();
+
         _ = AcessoRemotoLogService.SendLogAsync(targetId);
 
         try
@@ -823,6 +855,220 @@ public partial class AcessoRemotoViewerWindow : Window
         }
     }
 
+    private void CloseFileChannelInternal(bool resetUnsupportedFlag = true)
+    {
+        ClientWebSocket? oldWsFile;
+        CancellationTokenSource? oldCtsFile;
+        lock (_fileChannelSync)
+        {
+            _isFileChannelReady = false;
+            _fileChannelConnectTask = null;
+            if (resetUnsupportedFlag)
+            {
+                _fileChannelUnsupportedByServer = false;
+                Interlocked.Exchange(ref _lastFileChannelAttemptTick, 0);
+            }
+            oldWsFile = _wsFile;
+            oldCtsFile = _ctsFile;
+            _wsFile = null;
+            _ctsFile = null;
+        }
+
+        try { oldCtsFile?.Cancel(); } catch { }
+        try { oldWsFile?.Dispose(); } catch { }
+        try { oldCtsFile?.Dispose(); } catch { }
+    }
+
+    private Task<bool> EnsureFileChannelConnectedAsync()
+    {
+        if (!_isConnected || !_isSessionAccepted || _isClosingSession || _fileChannelUnsupportedByServer)
+            return Task.FromResult(false);
+
+        lock (_fileChannelSync)
+        {
+            if (_isFileChannelReady && _wsFile is { State: WebSocketState.Open })
+                return Task.FromResult(true);
+
+            if (_fileChannelUnsupportedByServer)
+                return Task.FromResult(false);
+
+            if (_fileChannelConnectTask is { IsCompleted: false } existingTask)
+            {
+                return existingTask.ContinueWith(
+                    _ => _isFileChannelReady && _wsFile is { State: WebSocketState.Open },
+                    TaskContinuationOptions.ExecuteSynchronously);
+            }
+
+            long nowTick = Environment.TickCount64;
+            long lastTick = Interlocked.Read(ref _lastFileChannelAttemptTick);
+            if (lastTick > 0 && (nowTick - lastTick) < 2000)
+                return Task.FromResult(false);
+
+            var mainCts = _cts;
+            if (mainCts == null || mainCts.IsCancellationRequested)
+                return Task.FromResult(false);
+
+            Interlocked.Exchange(ref _lastFileChannelAttemptTick, nowTick);
+            var task = ConnectFileChannelCoreAsync(mainCts.Token);
+            _fileChannelConnectTask = task;
+            return task.ContinueWith(
+                _ => _isFileChannelReady && _wsFile is { State: WebSocketState.Open },
+                TaskContinuationOptions.ExecuteSynchronously);
+        }
+    }
+
+    private async Task ConnectFileChannelCoreAsync(CancellationToken sessionCt)
+    {
+        var serverUrl = _connectedServerUrl;
+        var targetId = _connectedTargetId;
+        var password = _connectedPassword;
+        var sessionToken = _sessionToken;
+
+        if (string.IsNullOrWhiteSpace(serverUrl) || string.IsNullOrWhiteSpace(targetId))
+            return;
+
+        if (string.IsNullOrWhiteSpace(sessionToken) && string.IsNullOrWhiteSpace(password))
+            return;
+
+        var fileCts = CancellationTokenSource.CreateLinkedTokenSource(sessionCt);
+        var wsFile = new ClientWebSocket();
+        wsFile.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+
+        try
+        {
+            using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(fileCts.Token))
+            {
+                connectCts.CancelAfter(TimeSpan.FromSeconds(6));
+                await wsFile.ConnectAsync(new Uri(serverUrl), connectCts.Token).ConfigureAwait(false);
+
+                var authPayload = JsonSerializer.Serialize(new
+                {
+                    type = AcessoRemotoProtocol.TypeConnectViewerFile,
+                    target_id = targetId,
+                    session_token = string.IsNullOrWhiteSpace(sessionToken) ? null : sessionToken,
+                    password = string.IsNullOrWhiteSpace(password) ? null : password
+                });
+
+                var authBytes = Encoding.UTF8.GetBytes(authPayload);
+                await wsFile.SendAsync(new ArraySegment<byte>(authBytes), WebSocketMessageType.Text, true, connectCts.Token).ConfigureAwait(false);
+
+                var handBuf = new byte[16 * 1024];
+                int handReceived = 0;
+                WebSocketReceiveResult handRes;
+                do
+                {
+                    var seg = new ArraySegment<byte>(handBuf, handReceived, handBuf.Length - handReceived);
+                    handRes = await wsFile.ReceiveAsync(seg, connectCts.Token).ConfigureAwait(false);
+                    if (handRes.MessageType == WebSocketMessageType.Close)
+                        throw new InvalidOperationException("Canal secundário fechado durante o handshake.");
+                    handReceived += handRes.Count;
+                } while (!handRes.EndOfMessage);
+
+                var respJson = Encoding.UTF8.GetString(handBuf, 0, handReceived);
+                using var doc = JsonDocument.Parse(respJson);
+                var respType = doc.RootElement.TryGetProperty("type", out var tProp) ? tProp.GetString() : null;
+                if (!string.Equals(respType, AcessoRemotoProtocol.TypeViewerFileConnected, StringComparison.Ordinal))
+                {
+                    var errMsg = doc.RootElement.TryGetProperty("message", out var mProp) ? mProp.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(errMsg) &&
+                        errMsg.Contains("desconhecida", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _fileChannelUnsupportedByServer = true;
+                    }
+                    throw new InvalidOperationException($"Handshake do canal de arquivos recusado ({respType}).");
+                }
+            }
+
+            ClientWebSocket? prevWs;
+            CancellationTokenSource? prevCts;
+            lock (_fileChannelSync)
+            {
+                prevWs = _wsFile;
+                prevCts = _ctsFile;
+                _wsFile = wsFile;
+                _ctsFile = fileCts;
+                _isFileChannelReady = true;
+            }
+
+            try { prevCts?.Cancel(); } catch { }
+            try { prevWs?.Dispose(); } catch { }
+            try { prevCts?.Dispose(); } catch { }
+
+            _ = Task.Run(() => ReceiveFileLoopAsync(wsFile, fileCts.Token));
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _lastFileChannelAttemptTick, Environment.TickCount64);
+            try { fileCts.Cancel(); } catch { }
+            try { wsFile.Dispose(); } catch { }
+            try { fileCts.Dispose(); } catch { }
+        }
+    }
+
+    private async Task ReceiveFileLoopAsync(ClientWebSocket wsFile, CancellationToken ct)
+    {
+        var buffer = new byte[1024 * 1024];
+        try
+        {
+            while (!ct.IsCancellationRequested && wsFile.State == WebSocketState.Open)
+            {
+                var totalReceived = 0;
+                WebSocketReceiveResult result;
+
+                do
+                {
+                    if (totalReceived >= buffer.Length)
+                    {
+                        Array.Resize(ref buffer, buffer.Length * 2);
+                    }
+                    var segment = new ArraySegment<byte>(buffer, totalReceived, buffer.Length - totalReceived);
+                    result = await wsFile.ReceiveAsync(segment, ct).ConfigureAwait(false);
+                    totalReceived += result.Count;
+                } while (!result.EndOfMessage);
+
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                if (result.MessageType == WebSocketMessageType.Text && totalReceived > 0)
+                {
+                    var json = Encoding.UTF8.GetString(buffer, 0, totalReceived);
+                    ProcessControlMessage(json);
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            bool shouldReconnectFileChannel = false;
+            lock (_fileChannelSync)
+            {
+                if (ReferenceEquals(_wsFile, wsFile))
+                {
+                    _isFileChannelReady = false;
+                    _wsFile = null;
+                    _fileChannelConnectTask = null;
+                    shouldReconnectFileChannel = _isConnected && _isSessionAccepted && !_isClosingSession && !ct.IsCancellationRequested;
+                }
+            }
+
+            try { wsFile.Dispose(); } catch { }
+
+            if (shouldReconnectFileChannel)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(1500, ct).ConfigureAwait(false);
+                        if (_isConnected && _isSessionAccepted && !_isClosingSession)
+                            await EnsureFileChannelConnectedAsync().ConfigureAwait(false);
+                    }
+                    catch { }
+                });
+            }
+        }
+    }
+
     private async Task ReceiveLoopAsync(ClientWebSocket ws, CancellationToken ct)
     {
         var buffer = new byte[3 * 1024 * 1024];
@@ -835,6 +1081,10 @@ public partial class AcessoRemotoViewerWindow : Window
 
                 do
                 {
+                    if (totalReceived >= buffer.Length)
+                    {
+                        Array.Resize(ref buffer, buffer.Length * 2);
+                    }
                     var segment = new ArraySegment<byte>(buffer, totalReceived, buffer.Length - totalReceived);
                     result = await ws.ReceiveAsync(segment, ct);
                     totalReceived += result.Count;
@@ -881,23 +1131,34 @@ public partial class AcessoRemotoViewerWindow : Window
             switch (type)
             {
                 case "viewer_connected":
+                    var receivedSessionToken = root.TryGetProperty("session_token", out var stProp) ? stProp.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(receivedSessionToken))
+                        _sessionToken = receivedSessionToken;
+
                     Dispatcher.Invoke(() =>
                     {
                         _isConnected = true;
-                        SetConnectionState(connected: true);
+                        DisconnectedCard.Visibility = Visibility.Collapsed;
                         var isUnattended = root.TryGetProperty("unattended", out var uProp) && uProp.GetBoolean();
+
+                        var (name, avatar) = GetEffectiveTechnicianInfo();
+                        var initialPwd = !isUnattended ? TxtPassword.Password.Trim() : "";
+                        SendJson(new
+                        {
+                            type = "technician_info",
+                            technician_name = name,
+                            technician_avatar = avatar,
+                            password = string.IsNullOrEmpty(initialPwd) ? null : initialPwd
+                        });
+
                         if (isUnattended)
                         {
-                            _isReconnectingWithPassword = false;
-                            _waitingAuthTcs?.TrySetResult((true, null));
-                            LblStatusText.Text = "Conectado (Acesso não supervisionado)";
-                            StatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#10B981"));
-                            WaitingCard.Visibility = Visibility.Collapsed;
-                            ResetWaitingPasswordUiState(clearPassword: true);
-                            ImgRemoteScreen.Focus();
+                            MarkSessionAccepted(unattended: true);
                         }
                         else
                         {
+                            _isSessionAccepted = false;
+                            SetConnectionState(connected: true, sessionAccepted: false);
                             LblStatusText.Text = "Aguardando autorização do usuário na máquina remota...";
                             StatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"));
                             WaitingCard.Visibility = Visibility.Visible;
@@ -915,19 +1176,6 @@ public partial class AcessoRemotoViewerWindow : Window
                                 FocusWaitingPasswordInput(selectAll: LblWaitingPasswordError.Visibility == Visibility.Visible);
                             }
                         }
-                        DisconnectedCard.Visibility = Visibility.Collapsed;
-
-                        SendJson(new { type = "fs_list", path = "C:\\" });
-
-                        var (name, avatar) = GetEffectiveTechnicianInfo();
-                        var initialPwd = !isUnattended ? TxtPassword.Password.Trim() : "";
-                        SendJson(new
-                        {
-                            type = "technician_info",
-                            technician_name = name,
-                            technician_avatar = avatar,
-                            password = string.IsNullOrEmpty(initialPwd) ? null : initialPwd
-                        });
                     });
                     break;
 
@@ -953,6 +1201,7 @@ public partial class AcessoRemotoViewerWindow : Window
                     break;
 
                 case "monitors_list":
+                    bool supportsAutoExtract = root.TryGetProperty("auto_extract", out var aeProp) && aeProp.ValueKind == JsonValueKind.True;
                     if (root.TryGetProperty("monitors", out var monProp) && monProp.ValueKind == JsonValueKind.Array)
                     {
                         var monNames = new List<string>();
@@ -964,6 +1213,7 @@ public partial class AcessoRemotoViewerWindow : Window
 
                         Dispatcher.Invoke(() =>
                         {
+                            _hostSupportsAutoExtract = supportsAutoExtract;
                             MarkSessionAccepted();
                             RebuildMonitorButtons(monNames);
                         });
@@ -1100,6 +1350,10 @@ public partial class AcessoRemotoViewerWindow : Window
 
                 case "fs_list_res":
                     var currentPath = root.TryGetProperty("path", out var p) ? p.GetString() ?? "C:\\" : "C:\\";
+                    // Ignora respostas intermediárias durante upload em lote ou caminhos brutos "DESKTOP" de agentes legados
+                    if (_isBatchUploading || currentPath.StartsWith("DESKTOP", StringComparison.OrdinalIgnoreCase))
+                        break;
+
                     var drives = new List<string>();
                     if (root.TryGetProperty("drives", out var dProp) && dProp.ValueKind == JsonValueKind.Array)
                     {
@@ -1122,7 +1376,7 @@ public partial class AcessoRemotoViewerWindow : Window
                         }
                     }
 
-                    Dispatcher.Invoke(() =>
+                    _ = Dispatcher.InvokeAsync(() =>
                     {
                         _currentRemotePath = currentPath;
                         TxtCurrentPath.Text = currentPath;
@@ -1175,7 +1429,7 @@ public partial class AcessoRemotoViewerWindow : Window
                             });
                             btn.Content = driveSp;
 
-                            btn.Click += (_, _) => SendJson(new { type = "fs_list", path = drive });
+                            btn.Click += (_, _) => SendFileJson(new { type = "fs_list", path = drive });
                             PnlDrives.Children.Add(btn);
                         }
 
@@ -1193,14 +1447,31 @@ public partial class AcessoRemotoViewerWindow : Window
                     break;
 
                 case "fs_download_chunk":
+                    var dlTransferId = root.TryGetProperty("transfer_id", out var dlTidProp) ? dlTidProp.GetString() : null;
                     var downloadErrMsg = root.TryGetProperty("message", out var dErrProp) ? dErrProp.GetString() : null;
                     if (!string.IsNullOrEmpty(downloadErrMsg))
                     {
-                        _downloadStream?.Dispose();
-                        _downloadStream = null;
-                        if (!string.IsNullOrEmpty(_downloadDestPath) && File.Exists(_downloadDestPath))
+                        string? failedDestPath = null;
+                        bool matchedErrTransfer = false;
+                        lock (_downloadSync)
                         {
-                            try { File.Delete(_downloadDestPath); } catch { }
+                            if (!string.IsNullOrEmpty(_activeDownloadTransferId) &&
+                                (string.IsNullOrEmpty(dlTransferId) || string.Equals(dlTransferId, _activeDownloadTransferId, StringComparison.Ordinal)))
+                            {
+                                matchedErrTransfer = true;
+                                _activeDownloadTransferId = null;
+                                try { _downloadStream?.Dispose(); } catch { }
+                                _downloadStream = null;
+                                failedDestPath = _downloadDestPath;
+                            }
+                        }
+
+                        if (!matchedErrTransfer)
+                            break;
+
+                        if (!string.IsNullOrEmpty(failedDestPath) && File.Exists(failedDestPath))
+                        {
+                            try { File.Delete(failedDestPath); } catch { }
                         }
                         Dispatcher.Invoke(() =>
                         {
@@ -1215,28 +1486,59 @@ public partial class AcessoRemotoViewerWindow : Window
                     var totalSize = root.TryGetProperty("total_size", out var tsProp) ? tsProp.GetInt64() : 1;
                     var isLast = root.TryGetProperty("is_last", out var ilProp) && ilProp.GetBoolean();
 
-                    if (!string.IsNullOrEmpty(b64) && _downloadStream != null)
-                    {
-                        var bytes = Convert.FromBase64String(b64);
-                        _downloadStream.Write(bytes, 0, bytes.Length);
+                    var chunkRawBytes = !string.IsNullOrEmpty(b64) ? Convert.FromBase64String(b64) : Array.Empty<byte>();
+                    string? completedDestPath = null;
+                    bool matchedDownload = false;
 
-                        var percent = totalSize > 0 ? (int)((offset + bytes.Length) * 100 / totalSize) : 100;
-                        Dispatcher.Invoke(() =>
+                    lock (_downloadSync)
+                    {
+                        if (!string.IsNullOrEmpty(_activeDownloadTransferId) &&
+                            (string.IsNullOrEmpty(dlTransferId) || string.Equals(dlTransferId, _activeDownloadTransferId, StringComparison.Ordinal)))
                         {
-                            TransferProgressBar.Value = Math.Min(100, Math.Max(0, percent));
-                            LblTransferStatus.Text = $"Baixando... {percent}% ({(offset + bytes.Length) / 1024} KB de {totalSize / 1024} KB)";
-                        });
+                            matchedDownload = true;
+                            if (chunkRawBytes.Length > 0 && _downloadStream != null)
+                            {
+                                if (_downloadStream.Position != offset)
+                                    _downloadStream.Seek(offset, System.IO.SeekOrigin.Begin);
+                                _downloadStream.Write(chunkRawBytes, 0, chunkRawBytes.Length);
+                            }
+
+                            if (isLast)
+                            {
+                                _activeDownloadTransferId = null;
+                                try { _downloadStream?.Dispose(); } catch { }
+                                _downloadStream = null;
+                                completedDestPath = _downloadDestPath;
+                            }
+                        }
                     }
 
-                    if (isLast)
+                    if (!matchedDownload)
+                        break;
+
+                    if (chunkRawBytes.Length > 0)
                     {
-                        _downloadStream?.Dispose();
-                        _downloadStream = null;
+                        var doneBytes = offset + chunkRawBytes.Length;
+                        var percent = totalSize > 0 ? (int)(doneBytes * 100 / totalSize) : 100;
+                        long nowTick = Environment.TickCount64;
+                        if (isLast || nowTick - _lastDownloadUiTick >= 50)
+                        {
+                            _lastDownloadUiTick = nowTick;
+                            _ = Dispatcher.InvokeAsync(() =>
+                            {
+                                TransferProgressBar.Value = Math.Min(100, Math.Max(0, percent));
+                                LblTransferStatus.Text = $"Baixando... {percent}% ({FormatBytes(doneBytes)} de {FormatBytes(totalSize)})";
+                            });
+                        }
+                    }
+
+                    if (isLast && completedDestPath != null)
+                    {
                         Dispatcher.Invoke(() =>
                         {
                             TransferProgressBar.Value = 100;
                             LblTransferStatus.Text = "Download concluído com sucesso!";
-                            MessageBox.Show($"Arquivo salvo com sucesso em:\n{_downloadDestPath}", "Download Concluído", MessageBoxButton.OK, MessageBoxImage.Information);
+                            MessageBox.Show($"Arquivo salvo com sucesso em:\n{completedDestPath}", "Download Concluído", MessageBoxButton.OK, MessageBoxImage.Information);
                         });
                     }
                     break;
@@ -1293,7 +1595,7 @@ public partial class AcessoRemotoViewerWindow : Window
             uint w = BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(1, 4));
             uint h = BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(5, 4));
 
-            var jpegStream = new MemoryStream(buffer, 9, length - 9);
+            using var jpegStream = new MemoryStream(buffer, 9, length - 9, writable: false);
             var bmp = new BitmapImage();
             bmp.BeginInit();
             bmp.CacheOption = BitmapCacheOption.OnLoad;
@@ -1301,35 +1603,11 @@ public partial class AcessoRemotoViewerWindow : Window
             bmp.EndInit();
             bmp.Freeze();
 
-            Dispatcher.Invoke(() =>
+            Interlocked.Exchange(ref _pendingFrame, new PendingVideoFrame(bmp, (int)w, (int)h));
+            if (Interlocked.CompareExchange(ref _frameRenderScheduled, 1, 0) == 0)
             {
-                MarkSessionAccepted();
-                if (DisconnectedCard.Visibility != Visibility.Collapsed)
-                    DisconnectedCard.Visibility = Visibility.Collapsed;
-
-                ImgRemoteScreen.Source = bmp;
-                _remoteWidth = (int)w;
-                _remoteHeight = (int)h;
-
-                _frameCount++;
-                var elapsed = (DateTime.UtcNow - _lastFpsCheck).TotalSeconds;
-                if (elapsed >= 1.0)
-                {
-                    var fps = Math.Round(_frameCount / elapsed);
-                    LblFpsInfo.Text = $"{_remoteWidth}x{_remoteHeight} • {fps} FPS";
-                    _frameCount = 0;
-                    _lastFpsCheck = DateTime.UtcNow;
-                }
-
-                if (_lastRemoteCursorState != null && _showRemoteCursor && (_isTechnicianBlockedByClient || _lastRemoteCursorState.ClientActive))
-                {
-                    UpdateClientCursorVisual(_lastRemoteCursorState);
-                }
-                else if (ClientCursorContainer != null && ClientCursorContainer.Visibility != Visibility.Collapsed)
-                {
-                    ClientCursorContainer.Visibility = Visibility.Collapsed;
-                }
-            });
+                _ = Dispatcher.InvokeAsync(RenderPendingVideoFrame, System.Windows.Threading.DispatcherPriority.Render);
+            }
         }
         else if (opcode == OpCursor)
         {
@@ -1337,6 +1615,47 @@ public partial class AcessoRemotoViewerWindow : Window
             {
                 Dispatcher.InvokeAsync(() => ApplyRemoteCursorState(cursorState));
             }
+        }
+    }
+
+    private void RenderPendingVideoFrame()
+    {
+        Interlocked.Exchange(ref _frameRenderScheduled, 0);
+        var frame = Interlocked.Exchange(ref _pendingFrame, null);
+        if (frame == null || !_isConnected)
+            return;
+
+        MarkSessionAccepted();
+        if (DisconnectedCard.Visibility != Visibility.Collapsed)
+            DisconnectedCard.Visibility = Visibility.Collapsed;
+
+        ImgRemoteScreen.Source = frame.Bitmap;
+        _remoteWidth = frame.Width;
+        _remoteHeight = frame.Height;
+
+        _frameCount++;
+        var elapsed = (DateTime.UtcNow - _lastFpsCheck).TotalSeconds;
+        if (elapsed >= 1.0)
+        {
+            var fps = Math.Round(_frameCount / elapsed);
+            LblFpsInfo.Text = $"{_remoteWidth}x{_remoteHeight} • {fps} FPS";
+            _frameCount = 0;
+            _lastFpsCheck = DateTime.UtcNow;
+        }
+
+        if (_lastRemoteCursorState != null && _showRemoteCursor && (_isTechnicianBlockedByClient || _lastRemoteCursorState.ClientActive))
+        {
+            UpdateClientCursorVisual(_lastRemoteCursorState);
+        }
+        else if (ClientCursorContainer != null && ClientCursorContainer.Visibility != Visibility.Collapsed)
+        {
+            ClientCursorContainer.Visibility = Visibility.Collapsed;
+        }
+
+        if (Volatile.Read(ref _pendingFrame) != null &&
+            Interlocked.CompareExchange(ref _frameRenderScheduled, 1, 0) == 0)
+        {
+            _ = Dispatcher.InvokeAsync(RenderPendingVideoFrame, System.Windows.Threading.DispatcherPriority.Render);
         }
     }
 
@@ -1351,15 +1670,34 @@ public partial class AcessoRemotoViewerWindow : Window
     {
         _isReconnectingWithPassword = false;
         _waitingAuthTcs?.TrySetResult((true, null));
-        if (WaitingCard.Visibility != Visibility.Visible) return;
+        bool wasAccepted = _isSessionAccepted;
+        _isSessionAccepted = true;
+        SetConnectionState(connected: true, sessionAccepted: true);
 
-        WaitingCard.Visibility = Visibility.Collapsed;
-        ResetWaitingPasswordUiState(clearPassword: true);
-        LblStatusText.Text = unattended
-            ? "Conectado (Acesso não supervisionado)"
-            : $"Conectado • {TxtTargetId.Text.Trim()}";
-        StatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#10B981"));
-        ImgRemoteScreen.Focus();
+        if (WaitingCard.Visibility == Visibility.Visible || !wasAccepted)
+        {
+            WaitingCard.Visibility = Visibility.Collapsed;
+            ResetWaitingPasswordUiState(clearPassword: true);
+            LblStatusText.Text = unattended
+                ? "Conectado (Acesso não supervisionado)"
+                : $"Conectado • {TxtTargetId.Text.Trim()}";
+            StatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#10B981"));
+            ImgRemoteScreen.Focus();
+        }
+
+        if (!wasAccepted)
+        {
+            var initialPath = string.IsNullOrWhiteSpace(_currentRemotePath) ? "C:\\" : _currentRemotePath;
+            _ = Task.Run(async () =>
+            {
+                await EnsureFileChannelConnectedAsync().ConfigureAwait(false);
+                await SendFileJsonAsync(new { type = "fs_list", path = initialPath }).ConfigureAwait(false);
+            });
+        }
+        else
+        {
+            _ = EnsureFileChannelConnectedAsync();
+        }
     }
 
     private bool _isWaitingPasswordRevealed;
@@ -1551,6 +1889,7 @@ public partial class AcessoRemotoViewerWindow : Window
         _waitingAuthTcs = authTcs;
 
         var (techName, techAvatar) = GetEffectiveTechnicianInfo();
+        _connectedPassword = pwd;
 
         await SendJsonAsync(new
         {
@@ -1567,6 +1906,7 @@ public partial class AcessoRemotoViewerWindow : Window
             if (ok)
             {
                 TxtPassword.Password = pwd;
+                _connectedPassword = pwd;
                 MarkSessionAccepted(unattended: true);
                 return;
             }
@@ -1594,6 +1934,12 @@ public partial class AcessoRemotoViewerWindow : Window
             ResetWaitingPasswordUiState(clearPassword: false);
             return;
         }
+
+        _connectedServerUrl = serverUrl;
+        _connectedTargetId = targetId;
+        _connectedPassword = pwd;
+        _sessionToken = null;
+        CloseFileChannelInternal();
 
         _isReconnectingWithPassword = true;
         var oldWs = _ws;
@@ -1667,6 +2013,12 @@ public partial class AcessoRemotoViewerWindow : Window
         var targetId = TxtTargetId.Text.Trim().Replace(" ", "");
         if (string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(targetId))
             return;
+
+        _connectedServerUrl = serverUrl;
+        _connectedTargetId = targetId;
+        _connectedPassword = "";
+        _sessionToken = null;
+        CloseFileChannelInternal();
 
         var oldWs = _ws;
         var oldCts = _cts;
@@ -1959,12 +2311,32 @@ public partial class AcessoRemotoViewerWindow : Window
     private void DisconnectInternal()
     {
         _isConnected = false;
+        _isSessionAccepted = false;
+        _hostSupportsAutoExtract = false;
+        _isBatchUploading = false;
         _isInputBlocked = false;
+        _sessionToken = null;
+        Interlocked.Exchange(ref _latestMouseMovePacket, null);
+        Interlocked.Exchange(ref _pendingFrame, null);
+        Interlocked.Exchange(ref _frameRenderScheduled, 0);
+        CloseFileChannelInternal();
+        lock (_downloadSync)
+        {
+            _activeDownloadTransferId = null;
+            try { _downloadStream?.Dispose(); } catch { }
+            _downloadStream = null;
+        }
         SetTechnicianInputBlockedByClient(false);
         _lastRemoteCursorState = null;
         ApplyTechnicianCursor(RemoteCursorType.Arrow);
         if (ClientCursorContainer != null)
             ClientCursorContainer.Visibility = Visibility.Collapsed;
+        if (ScreenTransferToast != null)
+            ScreenTransferToast.Visibility = Visibility.Collapsed;
+        if (DropOverlay != null)
+            DropOverlay.Visibility = Visibility.Collapsed;
+        if (DropFilesOverlay != null)
+            DropFilesOverlay.Visibility = Visibility.Collapsed;
         WaitingCard.Visibility = Visibility.Collapsed;
         DisconnectedCard.Visibility = Visibility.Collapsed;
 
@@ -1976,6 +2348,7 @@ public partial class AcessoRemotoViewerWindow : Window
 
         try
         {
+            _toastHideCts?.Cancel();
             _cts?.Cancel();
             _ws?.Dispose();
             _downloadStream?.Dispose();
@@ -1986,7 +2359,7 @@ public partial class AcessoRemotoViewerWindow : Window
         _cts = null;
         _downloadStream = null;
 
-        SetConnectionState(connected: false);
+        SetConnectionState(connected: false, sessionAccepted: false);
         SetChatOpen(false);
         ImgRemoteScreen.Source = null;
         _fileItems.Clear();
@@ -2028,13 +2401,13 @@ public partial class AcessoRemotoViewerWindow : Window
         }
     }
 
-    private void SetConnectionState(bool connected = false, bool connecting = false)
+    private void SetConnectionState(bool connected = false, bool connecting = false, bool sessionAccepted = false)
     {
         BtnConnect.IsEnabled = !connected && !connecting;
         BtnDisconnect.IsEnabled = connected || connecting;
-        BtnBlockInput.IsEnabled = connected;
-        MenuQuickActions.IsEnabled = connected;
-        PnlMonitors.IsEnabled = connected;
+        BtnBlockInput.IsEnabled = connected && sessionAccepted;
+        MenuQuickActions.IsEnabled = connected && sessionAccepted;
+        PnlMonitors.IsEnabled = connected && sessionAccepted;
         TxtServerUrl.IsEnabled = !connected && !connecting;
         TxtTargetId.IsEnabled = !connected && !connecting;
         TxtPassword.IsEnabled = !connected && !connecting;
@@ -2252,7 +2625,7 @@ public partial class AcessoRemotoViewerWindow : Window
 
     private void OnLocalViewerClipboardChanged()
     {
-        if (!_isConnected)
+        if (!_isConnected || !_isSessionAccepted)
             return;
 
         var (text, files) = AcessoRemotoClipboard.ReadLocalClipboard();
@@ -2274,11 +2647,11 @@ public partial class AcessoRemotoViewerWindow : Window
                         LastWriteUtcTicks = a.LastWriteUtcTicks
                     }).ToList();
 
-                    await SendJsonAsync(new
+                    await SendFileJsonAsync(new
                     {
                         type = AcessoRemotoProtocol.TypeClipboardFilesAdvertisement,
                         clipboard_files = wireAds
-                    });
+                    }).ConfigureAwait(false);
                 }
             });
         }
@@ -2307,12 +2680,12 @@ public partial class AcessoRemotoViewerWindow : Window
 
         _ = Task.Run(async () =>
         {
-            await SendJsonAsync(new
+            await SendFileJsonAsync(new
             {
                 type = AcessoRemotoProtocol.TypeClipboardFileRequest,
                 file_index = fileIndex,
                 transfer_id = transferId
-            });
+            }).ConfigureAwait(false);
         });
 
         return pullStream;
@@ -2320,61 +2693,212 @@ public partial class AcessoRemotoViewerWindow : Window
 
     private async Task HandleViewerClipboardFileRequestAsync(int fileIndex, string transferId)
     {
+        await EnsureFileChannelConnectedAsync().ConfigureAwait(false);
+
         var item = _viewerAdvertisedFiles.FirstOrDefault(f => f.Index == fileIndex);
         if (item is null || string.IsNullOrEmpty(item.FullPath) || !System.IO.File.Exists(item.FullPath))
         {
-            await SendJsonAsync(new
+            await SendFileJsonAsync(new
             {
                 type = AcessoRemotoProtocol.TypeClipboardFileChunk,
                 transfer_id = transferId,
                 file_index = fileIndex,
                 message = "Arquivo local não encontrado na área de transferência.",
                 is_last = true
-            });
+            }).ConfigureAwait(false);
             return;
         }
 
-        const int chunkSize = 64 * 1024;
+        const int chunkSize = AcessoRemotoProtocol.DefaultFileChunkSize;
         long offset = 0;
 
-        while (_isConnected && _ws != null && _ws.State == WebSocketState.Open)
+        try
         {
-            try
+            using var fs = new System.IO.FileStream(item.FullPath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite, bufferSize: 64 * 1024, System.IO.FileOptions.SequentialScan);
+            long totalSize = fs.Length;
+            byte[] buffer = new byte[chunkSize];
+
+            if (totalSize == 0)
             {
-                var (chunk, totalSize, isLast) = AcessoRemotoFileSystem.ReadFileChunk(item.FullPath, offset, chunkSize);
-                await SendJsonAsync(new
+                await SendFileJsonAsync(new
+                {
+                    type = AcessoRemotoProtocol.TypeClipboardFileChunk,
+                    transfer_id = transferId,
+                    file_index = fileIndex,
+                    offset = 0L,
+                    total_size = 0L,
+                    chunk_b64 = "",
+                    is_last = true
+                }).ConfigureAwait(false);
+                return;
+            }
+
+            while (_isConnected && _ws != null && _ws.State == WebSocketState.Open)
+            {
+                int read = await fs.ReadAsync(buffer.AsMemory(0, chunkSize)).ConfigureAwait(false);
+                bool isLast = read <= 0 || (offset + read) >= totalSize;
+                string b64 = read > 0 ? Convert.ToBase64String(buffer, 0, read) : "";
+
+                long sendStart = Stopwatch.GetTimestamp();
+                bool usedFileChannel = await SendFileJsonAsync(new
                 {
                     type = AcessoRemotoProtocol.TypeClipboardFileChunk,
                     transfer_id = transferId,
                     file_index = fileIndex,
                     offset = offset,
                     total_size = totalSize,
-                    chunk_b64 = Convert.ToBase64String(chunk),
+                    chunk_b64 = b64,
                     is_last = isLast
-                });
+                }).ConfigureAwait(false);
+                double sendMs = Stopwatch.GetElapsedTime(sendStart).TotalMilliseconds;
 
-                offset += chunk.Length;
+                offset += Math.Max(0, read);
                 if (isLast)
                     break;
-            }
-            catch (Exception ex)
-            {
-                await SendJsonAsync(new
-                {
-                    type = AcessoRemotoProtocol.TypeClipboardFileChunk,
-                    transfer_id = transferId,
-                    file_index = fileIndex,
-                    message = ex.Message,
-                    is_last = true
-                });
-                break;
+
+                int paceMs = usedFileChannel
+                    ? (sendMs > 12 ? Math.Clamp((int)(sendMs * 2 / 3), 8, 45) : 6)
+                    : Math.Clamp(Math.Max(14, (int)sendMs), 14, 60);
+                await Task.Delay(paceMs).ConfigureAwait(false);
             }
         }
+        catch (Exception ex)
+        {
+            await SendFileJsonAsync(new
+            {
+                type = AcessoRemotoProtocol.TypeClipboardFileChunk,
+                transfer_id = transferId,
+                file_index = fileIndex,
+                message = ex.Message,
+                is_last = true
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{(bytes / 1024.0):F1} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{(bytes / (1024.0 * 1024.0)):F1} MB";
+        return $"{(bytes / (1024.0 * 1024.0 * 1024.0)):F2} GB";
+    }
+
+    private void UpdateTransferToastProgress(
+        string title,
+        string fileName,
+        string counterText,
+        int percent,
+        long bytesDone,
+        long totalBytes)
+    {
+        try
+        {
+            _toastHideCts?.Cancel();
+            _toastHideCts = null;
+        }
+        catch { }
+
+        int clampedPercent = Math.Clamp(percent, 0, 100);
+        string bytesStr = totalBytes > 0
+            ? $"{FormatBytes(bytesDone)} de {FormatBytes(totalBytes)}"
+            : FormatBytes(bytesDone);
+
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (!_isConnected) return;
+
+            var accentBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#6366F1"));
+            var borderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4F46E5"));
+            var percentBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#818CF8"));
+
+            ScreenTransferToast.BorderBrush = borderBrush;
+            ToastIconBadge.Background = accentBrush;
+            ToastIconPath.Data = System.Windows.Media.Geometry.Parse("M 12,17 V 5 M 7,10 L 12,5 L 17,10 M 4,19 H 20");
+            ToastProgressBar.Foreground = accentBrush;
+
+            LblToastTitle.Text = title;
+            LblToastFileName.Text = fileName;
+            LblToastCounter.Text = counterText;
+            ToastProgressBar.Value = clampedPercent;
+            LblToastBytes.Text = bytesStr;
+            LblToastPercent.Text = $"{clampedPercent}%";
+            LblToastPercent.Foreground = percentBrush;
+
+            if (ScreenTransferToast.Visibility != Visibility.Visible)
+                ScreenTransferToast.Visibility = Visibility.Visible;
+
+            TransferProgressBar.Value = clampedPercent;
+            LblTransferStatus.Text = $"{title} {clampedPercent}% ({bytesStr})";
+        });
+    }
+
+    private void CompleteTransferToast(
+        string title,
+        string subtitle,
+        string counterText,
+        long totalBytes,
+        bool isError = false)
+    {
+        try { _toastHideCts?.Cancel(); } catch { }
+        var hideCts = new CancellationTokenSource();
+        _toastHideCts = hideCts;
+        var token = hideCts.Token;
+
+        string bytesStr = FormatBytes(totalBytes);
+
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (!_isConnected) return;
+
+            var statusColor = isError ? "#EF4444" : "#10B981";
+            var statusBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(statusColor));
+
+            ScreenTransferToast.BorderBrush = statusBrush;
+            ToastIconBadge.Background = statusBrush;
+            ToastIconPath.Data = System.Windows.Media.Geometry.Parse(
+                isError
+                    ? "M 18,6 L 6,18 M 6,6 L 18,18"
+                    : "M 20,6 L 9,17 L 4,12");
+            ToastProgressBar.Foreground = statusBrush;
+            ToastProgressBar.Value = isError ? 0 : 100;
+
+            LblToastTitle.Text = title;
+            LblToastFileName.Text = subtitle;
+            LblToastCounter.Text = counterText;
+            LblToastBytes.Text = bytesStr;
+            LblToastPercent.Text = isError ? "Falha" : "100%";
+            LblToastPercent.Foreground = statusBrush;
+
+            if (ScreenTransferToast.Visibility != Visibility.Visible)
+                ScreenTransferToast.Visibility = Visibility.Visible;
+
+            TransferProgressBar.Value = isError ? 0 : 100;
+            LblTransferStatus.Text = isError ? $"{title}: {subtitle}" : $"{title} ({bytesStr})";
+        });
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(4500, token).ConfigureAwait(false);
+                if (!token.IsCancellationRequested)
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (!token.IsCancellationRequested && ScreenTransferToast != null)
+                            ScreenTransferToast.Visibility = Visibility.Collapsed;
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, token);
     }
 
     private void ViewScreen_DragOver(object sender, System.Windows.DragEventArgs e)
     {
-        if (!_isConnected || !e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
+        if (!_isConnected || !_isSessionAccepted || !e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
         {
             e.Effects = System.Windows.DragDropEffects.None;
             e.Handled = true;
@@ -2396,107 +2920,495 @@ public partial class AcessoRemotoViewerWindow : Window
     private async void ViewScreen_Drop(object sender, System.Windows.DragEventArgs e)
     {
         DropOverlay.Visibility = Visibility.Collapsed;
-        if (!_isConnected || !e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
+        if (!_isConnected || !_isSessionAccepted || !e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
             return;
 
         if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] droppedPaths || droppedPaths.Length == 0)
             return;
 
-        await Task.Run(async () =>
-        {
-            foreach (var path in droppedPaths)
-            {
-                if (string.IsNullOrWhiteSpace(path))
-                    continue;
-
-                if (System.IO.File.Exists(path))
-                {
-                    string fileName = System.IO.Path.GetFileName(path);
-                    string remoteTarget = $"DESKTOP\\{fileName}";
-                    await UploadSingleFileToRemoteAsync(path, remoteTarget);
-                }
-                else if (System.IO.Directory.Exists(path))
-                {
-                    var rootInfo = new System.IO.DirectoryInfo(path);
-                    string parentDir = rootInfo.Parent?.FullName ?? rootInfo.FullName;
-
-                    await SendJsonAsync(new
-                    {
-                        type = "fs_mkdir",
-                        path = $"DESKTOP\\{rootInfo.Name}"
-                    });
-
-                    foreach (var subDir in rootInfo.EnumerateDirectories("*", System.IO.SearchOption.AllDirectories))
-                    {
-                        string relDir = System.IO.Path.GetRelativePath(parentDir, subDir.FullName);
-                        await SendJsonAsync(new
-                        {
-                            type = "fs_mkdir",
-                            path = $"DESKTOP\\{relDir}"
-                        });
-                    }
-
-                    foreach (var file in rootInfo.EnumerateFiles("*", System.IO.SearchOption.AllDirectories))
-                    {
-                        string rel = System.IO.Path.GetRelativePath(parentDir, file.FullName);
-                        string remoteTarget = $"DESKTOP\\{rel}";
-                        await UploadSingleFileToRemoteAsync(file.FullName, remoteTarget);
-                    }
-                }
-            }
-        });
+        await UploadDroppedItemsAsync(droppedPaths, "DESKTOP", "Área de Trabalho", refreshFileManagerOnComplete: false);
     }
 
-    private async Task UploadSingleFileToRemoteAsync(string localFilePath, string targetRemotePath)
+    private void ViewFiles_DragOver(object sender, System.Windows.DragEventArgs e)
     {
+        if (!_isConnected || !_isSessionAccepted || !e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
+        {
+            e.Effects = System.Windows.DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        e.Effects = System.Windows.DragDropEffects.Copy;
+        if (DropFilesOverlay != null && DropFilesOverlay.Visibility != Visibility.Visible)
+            DropFilesOverlay.Visibility = Visibility.Visible;
+        e.Handled = true;
+    }
+
+    private void ViewFiles_DragLeave(object sender, System.Windows.DragEventArgs e)
+    {
+        if (DropFilesOverlay != null && DropFilesOverlay.Visibility != Visibility.Collapsed)
+            DropFilesOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private async void ViewFiles_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (DropFilesOverlay != null)
+            DropFilesOverlay.Visibility = Visibility.Collapsed;
+        if (!_isConnected || !_isSessionAccepted || !e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
+            return;
+
+        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] droppedPaths || droppedPaths.Length == 0)
+            return;
+
+        string targetBaseDir = string.IsNullOrWhiteSpace(_currentRemotePath) ||
+                               string.Equals(_currentRemotePath, "DRIVES", StringComparison.OrdinalIgnoreCase)
+            ? "C:\\"
+            : _currentRemotePath;
+
+        await UploadDroppedItemsAsync(droppedPaths, targetBaseDir, targetBaseDir, refreshFileManagerOnComplete: true);
+    }
+
+    private async Task UploadDroppedItemsAsync(
+        string[] droppedPaths,
+        string remoteBaseDir,
+        string destinationLabel,
+        bool refreshFileManagerOnComplete)
+    {
+        var validPaths = droppedPaths
+            .Where(p => !string.IsNullOrWhiteSpace(p) && (System.IO.File.Exists(p) || System.IO.Directory.Exists(p)))
+            .ToList();
+
+        if (validPaths.Count == 0)
+            return;
+
+        string normalizedBase = remoteBaseDir.TrimEnd('\\', '/');
+        if (normalizedBase.Length == 2 && normalizedBase[1] == ':')
+            normalizedBase += "\\";
+
+        bool isFilesTabVisible = ViewFiles.Visibility == Visibility.Visible;
+        _isBatchUploading = true;
+
         try
         {
-            const int chunkSize = 64 * 1024;
-            using var fs = new System.IO.FileStream(localFilePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite);
-            long totalSize = fs.Length;
-            long offset = 0;
-            byte[] buffer = new byte[chunkSize];
-
-            if (totalSize == 0)
+            await Task.Run(async () =>
             {
-                await SendJsonAsync(new
+                // Expande a lista de operações para calcular progresso real de arquivos e pastas
+                var expandedFiles = new List<(string LocalPath, string RemotePath, string DisplayName, long Size)>();
+                var emptyDirsToCreate = new List<string>();
+                var foldersForAutoExtract = new List<(System.IO.DirectoryInfo DirInfo, string RemoteFolderTarget, int FileCount, long RawBytes)>();
+
+                static void EnqueueDirectFolderStructure(
+                    System.IO.DirectoryInfo rootInfo,
+                    string remoteFolderTarget,
+                    IReadOnlyList<System.IO.FileInfo> dirFiles,
+                    List<string> targetEmptyDirs,
+                    List<(string LocalPath, string RemotePath, string DisplayName, long Size)> targetExpandedFiles)
                 {
-                    type = "fs_upload_chunk",
-                    remote_path = targetRemotePath,
-                    offset = 0L,
-                    total_size = 0L,
-                    chunk_b64 = Convert.ToBase64String(Array.Empty<byte>()),
-                    is_last = true
-                });
-                return;
-            }
+                    var dirsWithFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var file in dirFiles)
+                    {
+                        string rel = System.IO.Path.GetRelativePath(rootInfo.FullName, file.FullName);
+                        string safeRel = AcessoRemotoClipboard.SanitizeRelativePath(rel, file.Name);
+                        targetExpandedFiles.Add((file.FullName, $"{remoteFolderTarget}\\{safeRel}", $"{rootInfo.Name}\\{safeRel}", Math.Max(0L, file.Length)));
 
-            while (offset < totalSize && _isConnected)
-            {
-                int read = fs.Read(buffer, 0, buffer.Length);
-                if (read <= 0)
-                    break;
+                        var parent = file.DirectoryName;
+                        while (!string.IsNullOrEmpty(parent) && parent.StartsWith(rootInfo.FullName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!dirsWithFiles.Add(parent))
+                                break;
+                            if (string.Equals(parent, rootInfo.FullName, StringComparison.OrdinalIgnoreCase))
+                                break;
+                            parent = System.IO.Path.GetDirectoryName(parent);
+                        }
+                    }
 
-                byte[] chunk = new byte[read];
-                Array.Copy(buffer, chunk, read);
+                    if (dirFiles.Count == 0)
+                    {
+                        targetEmptyDirs.Add(remoteFolderTarget);
+                    }
 
-                bool isLast = (offset + read) >= totalSize;
-                await SendJsonAsync(new
+                    try
+                    {
+                        foreach (var subDir in rootInfo.EnumerateDirectories("*", System.IO.SearchOption.AllDirectories))
+                        {
+                            // WriteFileChunk já cria todos os diretórios pais de arquivos; envia fs_mkdir apenas para pastas sem arquivos
+                            if (dirsWithFiles.Contains(subDir.FullName))
+                                continue;
+
+                            string relDir = System.IO.Path.GetRelativePath(rootInfo.FullName, subDir.FullName);
+                            string safeRelDir = AcessoRemotoClipboard.SanitizeRelativePath(relDir, subDir.Name);
+                            targetEmptyDirs.Add($"{remoteFolderTarget}\\{safeRelDir}");
+                        }
+                    }
+                    catch { }
+                }
+
+                foreach (var path in validPaths)
                 {
-                    type = "fs_upload_chunk",
-                    remote_path = targetRemotePath,
-                    offset = offset,
-                    total_size = totalSize,
-                    chunk_b64 = Convert.ToBase64String(chunk),
-                    is_last = isLast
-                });
+                    if (System.IO.File.Exists(path))
+                    {
+                        var fi = new System.IO.FileInfo(path);
+                        string safeFileName = AcessoRemotoClipboard.SanitizeRelativePath(fi.Name, fi.Name);
+                        string targetRemote = normalizedBase.EndsWith('\\')
+                            ? $"{normalizedBase}{safeFileName}"
+                            : $"{normalizedBase}\\{safeFileName}";
+                        expandedFiles.Add((fi.FullName, targetRemote, fi.Name, Math.Max(0L, fi.Length)));
+                    }
+                    else if (System.IO.Directory.Exists(path))
+                    {
+                        var rootInfo = new System.IO.DirectoryInfo(path);
+                        string safeRootName = AcessoRemotoClipboard.SanitizeRelativePath(rootInfo.Name, rootInfo.Name);
+                        string remoteFolderTarget = normalizedBase.EndsWith('\\')
+                            ? $"{normalizedBase}{safeRootName}"
+                            : $"{normalizedBase}\\{safeRootName}";
 
-                offset += read;
-            }
+                        var dirFiles = new List<System.IO.FileInfo>();
+                        long folderBytes = 0;
+                        bool hasSubDirs = false;
+                        try
+                        {
+                            hasSubDirs = rootInfo.EnumerateDirectories().Any();
+                            foreach (var f in rootInfo.EnumerateFiles("*", System.IO.SearchOption.AllDirectories))
+                            {
+                                dirFiles.Add(f);
+                                folderBytes += Math.Max(0L, f.Length);
+                            }
+                        }
+                        catch { }
+
+                        if (_hostSupportsAutoExtract && (dirFiles.Count > 0 || hasSubDirs))
+                        {
+                            foldersForAutoExtract.Add((rootInfo, remoteFolderTarget, Math.Max(1, dirFiles.Count), folderBytes));
+                        }
+                        else
+                        {
+                            EnqueueDirectFolderStructure(rootInfo, remoteFolderTarget, dirFiles, emptyDirsToCreate, expandedFiles);
+                        }
+                    }
+                }
+
+                int totalSteps = foldersForAutoExtract.Sum(f => Math.Max(1, f.FileCount)) + expandedFiles.Count;
+                if (totalSteps == 0)
+                    totalSteps = Math.Max(1, emptyDirsToCreate.Count);
+
+                long totalExpectedBytes = foldersForAutoExtract.Sum(f => f.RawBytes) + expandedFiles.Sum(f => f.Size);
+                long cumulativeTransferredBytes = 0;
+                int completedFilesCount = 0;
+                int succeededOps = 0;
+                int failedOps = 0;
+                string? lastErrorMsg = null;
+
+                UpdateTransferToastProgress(
+                    $"Enviando para {destinationLabel}...",
+                    validPaths.Count == 1 ? System.IO.Path.GetFileName(validPaths[0].TrimEnd('\\', '/')) : $"{totalSteps} arquivos selecionados",
+                    $"0 de {totalSteps}",
+                    0,
+                    0,
+                    totalExpectedBytes);
+
+                // 1. Processa pastas via compactação transparente + extração automática no Host (chegam 100% deszipadas)
+                foreach (var folderItem in foldersForAutoExtract)
+                {
+                    if (!_isConnected) break;
+
+                    string? tempZip = null;
+                    bool extractedViaZip = false;
+
+                    try
+                    {
+                        UpdateTransferToastProgress(
+                            $"Preparando pasta '{folderItem.DirInfo.Name}'...",
+                            $"{folderItem.FileCount} arquivos ({FormatBytes(folderItem.RawBytes)})",
+                            $"{Math.Min(totalSteps, completedFilesCount + 1)} de {totalSteps}",
+                            totalExpectedBytes > 0 ? (int)(cumulativeTransferredBytes * 100 / totalExpectedBytes) : 0,
+                            cumulativeTransferredBytes,
+                            totalExpectedBytes);
+
+                        tempZip = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"sistec_drop_{Guid.NewGuid():N}.zip");
+                        System.IO.Compression.ZipFile.CreateFromDirectory(
+                            folderItem.DirInfo.FullName,
+                            tempZip,
+                            System.IO.Compression.CompressionLevel.Fastest,
+                            includeBaseDirectory: false);
+
+                        var zipInfo = new System.IO.FileInfo(tempZip);
+                        long zipLength = Math.Max(1L, zipInfo.Length);
+                        string transferId = Guid.NewGuid().ToString("N");
+                        long baseTransferred = cumulativeTransferredBytes;
+
+                        var (zipSentOk, zipErr) = await UploadSingleFileToRemoteAsync(
+                            tempZip,
+                            folderItem.RemoteFolderTarget,
+                            suppressList: true,
+                            autoExtract: true,
+                            transferId: transferId,
+                            onProgress: (zipSent, _) =>
+                            {
+                                long mappedRawSent = (long)((double)zipSent / zipLength * folderItem.RawBytes);
+                                long currentTotal = baseTransferred + mappedRawSent;
+                                int pct = totalExpectedBytes > 0
+                                    ? (int)(currentTotal * 100 / totalExpectedBytes)
+                                    : (int)(zipSent * 100 / zipLength);
+                                UpdateTransferToastProgress(
+                                    $"Enviando para {destinationLabel}...",
+                                    $"Pasta: {folderItem.DirInfo.Name} ({folderItem.FileCount} arquivos)",
+                                    $"{Math.Min(totalSteps, completedFilesCount + folderItem.FileCount)} de {totalSteps}",
+                                    pct,
+                                    currentTotal,
+                                    totalExpectedBytes);
+                            });
+
+                        if (zipSentOk)
+                        {
+                            cumulativeTransferredBytes = baseTransferred + folderItem.RawBytes;
+                            completedFilesCount += folderItem.FileCount;
+                            succeededOps += folderItem.FileCount;
+                            extractedViaZip = true;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(zipErr))
+                        {
+                            lastErrorMsg = zipErr;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lastErrorMsg = ex.Message;
+                        AppDebugLog.Debug("AcessoRemoto", $"Fallback para envio direto da pasta '{folderItem.DirInfo.Name}': {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (tempZip != null)
+                        {
+                            try { if (System.IO.File.Exists(tempZip)) System.IO.File.Delete(tempZip); } catch { }
+                        }
+                    }
+
+                    // Fallback caso algum arquivo da pasta esteja em uso por outro processo durante o ZipFile
+                    if (!extractedViaZip && _isConnected)
+                    {
+                        var fallbackFiles = new List<System.IO.FileInfo>();
+                        try
+                        {
+                            foreach (var f in folderItem.DirInfo.EnumerateFiles("*", System.IO.SearchOption.AllDirectories))
+                                fallbackFiles.Add(f);
+                        }
+                        catch { }
+
+                        EnqueueDirectFolderStructure(
+                            folderItem.DirInfo,
+                            folderItem.RemoteFolderTarget,
+                            fallbackFiles,
+                            emptyDirsToCreate,
+                            expandedFiles);
+                    }
+                }
+
+                // 2. Cria estrutura de diretórios vazios sem disparar re-listagens intermediárias
+                foreach (var remoteDir in emptyDirsToCreate)
+                {
+                    if (!_isConnected) break;
+                    await SendFileJsonAsync(new
+                    {
+                        type = "fs_mkdir",
+                        path = remoteDir,
+                        suppress_list = true
+                    }).ConfigureAwait(false);
+                    if (expandedFiles.Count == 0 && foldersForAutoExtract.Count == 0)
+                        succeededOps++;
+                }
+
+                // 3. Envia arquivos individuais com chunks de 256 KB e feedback visual em tempo real
+                for (int i = 0; i < expandedFiles.Count && _isConnected; i++)
+                {
+                    var fileEntry = expandedFiles[i];
+                    int currentFileNumber = completedFilesCount + i + 1;
+                    long baseTransferred = cumulativeTransferredBytes;
+
+                    var (fileOk, fileErr) = await UploadSingleFileToRemoteAsync(
+                        fileEntry.LocalPath,
+                        fileEntry.RemotePath,
+                        suppressList: true,
+                        autoExtract: false,
+                        transferId: null,
+                        onProgress: (fileSent, fileTotal) =>
+                        {
+                            long currentTotal = baseTransferred + fileSent;
+                            int pct = totalExpectedBytes > 0
+                                ? (int)(currentTotal * 100 / totalExpectedBytes)
+                                : (fileTotal > 0 ? (int)(fileSent * 100 / fileTotal) : 100);
+                            UpdateTransferToastProgress(
+                                $"Enviando para {destinationLabel}...",
+                                fileEntry.DisplayName,
+                                $"Arquivo {currentFileNumber} de {totalSteps}",
+                                pct,
+                                currentTotal,
+                                totalExpectedBytes);
+                        });
+
+                    if (fileOk)
+                    {
+                        cumulativeTransferredBytes = baseTransferred + fileEntry.Size;
+                        succeededOps++;
+                    }
+                    else
+                    {
+                        failedOps++;
+                        if (!string.IsNullOrWhiteSpace(fileErr))
+                            lastErrorMsg = fileErr;
+                    }
+                }
+
+                if (_isConnected)
+                {
+                    if (succeededOps == 0 && failedOps > 0)
+                    {
+                        CompleteTransferToast(
+                            "Erro na transferência",
+                            lastErrorMsg ?? "Não foi possível ler ou enviar os arquivos selecionados.",
+                            "Erro",
+                            0,
+                            isError: true);
+                    }
+                    else if (failedOps > 0)
+                    {
+                        CompleteTransferToast(
+                            $"Transferência parcial ({destinationLabel})",
+                            $"{succeededOps} enviados, {failedOps} com falha ({lastErrorMsg ?? "erro de leitura"})",
+                            $"{succeededOps} de {totalSteps}",
+                            cumulativeTransferredBytes,
+                            isError: true);
+                    }
+                    else
+                    {
+                        CompleteTransferToast(
+                            $"Transferência concluída ({destinationLabel})",
+                            totalSteps == 1 ? "1 item enviado com sucesso" : $"{totalSteps} arquivos enviados com sucesso",
+                            $"{totalSteps} de {totalSteps}",
+                            totalExpectedBytes,
+                            isError: false);
+                    }
+                }
+            });
         }
         catch (Exception ex)
         {
-            AppDebugLog.Debug("AcessoRemoto", $"Falha no upload Drag&Drop de {localFilePath}: {ex.Message}");
+            CompleteTransferToast(
+                "Erro na transferência",
+                ex.Message,
+                "Erro",
+                0,
+                isError: true);
+        }
+        finally
+        {
+            _isBatchUploading = false;
+            if (_isConnected && _isSessionAccepted &&
+                (refreshFileManagerOnComplete || isFilesTabVisible) &&
+                !string.IsNullOrWhiteSpace(_currentRemotePath))
+            {
+                SendFileJson(new { type = "fs_list", path = _currentRemotePath });
+            }
+        }
+    }
+
+    private async Task<(bool Success, string? ErrorMessage)> UploadSingleFileToRemoteAsync(
+        string localFilePath,
+        string targetRemotePath,
+        bool suppressList = false,
+        bool autoExtract = false,
+        string? transferId = null,
+        Action<long, long>? onProgress = null)
+    {
+        try
+        {
+            if (!_isConnected || _ws == null || _ws.State != WebSocketState.Open)
+                return (false, "Conexão encerrada.");
+
+            await EnsureFileChannelConnectedAsync().ConfigureAwait(false);
+
+            const int chunkSize = AcessoRemotoProtocol.DefaultFileChunkSize;
+            using var fs = new System.IO.FileStream(localFilePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite, bufferSize: 64 * 1024, System.IO.FileOptions.SequentialScan);
+            long totalSize = fs.Length;
+            long offset = 0;
+            byte[] buffer = new byte[chunkSize];
+            long lastUiReportTick = 0;
+
+            if (totalSize == 0)
+            {
+                await SendFileJsonAsync(new
+                {
+                    type = "fs_upload_chunk",
+                    remote_path = targetRemotePath,
+                    transfer_id = transferId,
+                    offset = 0L,
+                    total_size = 0L,
+                    chunk_b64 = "",
+                    is_last = true,
+                    suppress_list = suppressList ? (bool?)true : null,
+                    auto_extract = autoExtract ? (bool?)true : null
+                }).ConfigureAwait(false);
+                onProgress?.Invoke(0L, 0L);
+                return (true, null);
+            }
+
+            onProgress?.Invoke(0L, totalSize);
+
+            while (offset < totalSize && _isConnected && _ws != null && _ws.State == WebSocketState.Open)
+            {
+                // Prioridade para mouse e teclado: cede a vez se houver inputs aguardando envio
+                int yieldWait = 0;
+                while (Volatile.Read(ref _pendingInputPackets) > 0 && _isConnected && yieldWait < 10)
+                {
+                    await Task.Delay(5).ConfigureAwait(false);
+                    yieldWait++;
+                }
+
+                int read = await fs.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false);
+                if (read <= 0)
+                    break;
+
+                bool isLast = (offset + read) >= totalSize;
+                long sendStart = Stopwatch.GetTimestamp();
+                bool usedFileChannel = await SendFileJsonAsync(new
+                {
+                    type = "fs_upload_chunk",
+                    remote_path = targetRemotePath,
+                    transfer_id = transferId,
+                    offset = offset,
+                    total_size = totalSize,
+                    chunk_b64 = Convert.ToBase64String(buffer, 0, read),
+                    is_last = isLast,
+                    suppress_list = suppressList ? (bool?)true : null,
+                    auto_extract = autoExtract ? (bool?)true : null
+                }).ConfigureAwait(false);
+                double sendMs = Stopwatch.GetElapsedTime(sendStart).TotalMilliseconds;
+
+                offset += read;
+
+                long nowTick = Environment.TickCount64;
+                if (isLast || nowTick - lastUiReportTick >= 45)
+                {
+                    lastUiReportTick = nowTick;
+                    onProgress?.Invoke(offset, totalSize);
+                }
+
+                if (!isLast)
+                {
+                    int paceMs = usedFileChannel
+                        ? (sendMs > 12 ? Math.Clamp((int)(sendMs * 2 / 3), 8, 45) : 6)
+                        : Math.Clamp(Math.Max(14, (int)sendMs), 14, 60);
+                    await Task.Delay(paceMs).ConfigureAwait(false);
+                }
+            }
+
+            return offset >= totalSize
+                ? (true, null)
+                : (false, "Transferência interrompida antes da conclusão.");
+        }
+        catch (Exception ex)
+        {
+            AppDebugLog.Debug("AcessoRemoto", $"Falha no upload de {localFilePath}: {ex.Message}");
+            return (false, ex.Message);
         }
     }
 
@@ -2505,19 +3417,66 @@ public partial class AcessoRemotoViewerWindow : Window
         _ = SendInputPacketAsync(packet);
     }
 
+    private async Task FlushPendingMouseMoveUnderLockAsync(ClientWebSocket ws)
+    {
+        var pendingMove = Interlocked.Exchange(ref _latestMouseMovePacket, null);
+        if (pendingMove is not null && _isConnected && ws.State == WebSocketState.Open)
+        {
+            await ws.SendAsync(new ArraySegment<byte>(pendingMove), WebSocketMessageType.Binary, true, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
     private async Task SendInputPacketAsync(byte[] packet)
     {
         var ws = _ws;
         if (!_isConnected || ws == null || ws.State != WebSocketState.Open) return;
+
+        // Coalescência de movimentos de mouse: se o socket estiver ocupado enviando outro pacote,
+        // substitui a coordenada pendente pela mais recente em vez de empilhar dezenas de movimentos antigos.
+        if (packet.Length == 10 && packet[0] == OpInput && packet[1] == InputMouseMove)
+        {
+            Interlocked.Exchange(ref _latestMouseMovePacket, packet);
+            if (!await _wsSendLock.WaitAsync(0).ConfigureAwait(false))
+                return;
+
+            Interlocked.Increment(ref _pendingInputPackets);
+            try
+            {
+                try
+                {
+                    while (true)
+                    {
+                        var movePkt = Interlocked.Exchange(ref _latestMouseMovePacket, null);
+                        if (movePkt is null || !_isConnected || ws.State != WebSocketState.Open)
+                            break;
+                        await ws.SendAsync(new ArraySegment<byte>(movePkt), WebSocketMessageType.Binary, true, CancellationToken.None).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _wsSendLock.Release();
+                }
+            }
+            catch { }
+            finally
+            {
+                Interlocked.Decrement(ref _pendingInputPackets);
+            }
+            return;
+        }
+
+        Interlocked.Increment(ref _pendingInputPackets);
         try
         {
             await _wsSendLock.WaitAsync().ConfigureAwait(false);
             try
             {
+                await FlushPendingMouseMoveUnderLockAsync(ws).ConfigureAwait(false);
                 if (_isConnected && ws.State == WebSocketState.Open)
                 {
                     await ws.SendAsync(new ArraySegment<byte>(packet), WebSocketMessageType.Binary, true, CancellationToken.None).ConfigureAwait(false);
                 }
+                await FlushPendingMouseMoveUnderLockAsync(ws).ConfigureAwait(false);
             }
             finally
             {
@@ -2525,6 +3484,10 @@ public partial class AcessoRemotoViewerWindow : Window
             }
         }
         catch { }
+        finally
+        {
+            Interlocked.Decrement(ref _pendingInputPackets);
+        }
     }
 
     private void SendJson(object payload)
@@ -2538,15 +3501,16 @@ public partial class AcessoRemotoViewerWindow : Window
         if (!_isConnected || ws == null || ws.State != WebSocketState.Open) return;
         try
         {
-            var json = JsonSerializer.Serialize(payload);
-            var bytes = Encoding.UTF8.GetBytes(json);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
             await _wsSendLock.WaitAsync().ConfigureAwait(false);
             try
             {
+                await FlushPendingMouseMoveUnderLockAsync(ws).ConfigureAwait(false);
                 if (_isConnected && ws.State == WebSocketState.Open)
                 {
                     await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
                 }
+                await FlushPendingMouseMoveUnderLockAsync(ws).ConfigureAwait(false);
             }
             finally
             {
@@ -2554,6 +3518,86 @@ public partial class AcessoRemotoViewerWindow : Window
             }
         }
         catch { }
+    }
+
+    private void SendFileJson(object payload)
+    {
+        _ = SendFileJsonAsync(payload);
+    }
+
+    private async Task<bool> SendFileJsonAsync(object payload)
+    {
+        if (!_isConnected) return false;
+
+        ClientWebSocket? wsFile = null;
+        if (_isFileChannelReady)
+        {
+            wsFile = _wsFile;
+        }
+        else if (_isSessionAccepted)
+        {
+            if (await EnsureFileChannelConnectedAsync().ConfigureAwait(false))
+            {
+                wsFile = _wsFile;
+            }
+        }
+
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+
+        if (_isFileChannelReady && wsFile is { State: WebSocketState.Open })
+        {
+            try
+            {
+                await _wsFileSendLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (_isConnected && _isFileChannelReady && wsFile.State == WebSocketState.Open)
+                    {
+                        await wsFile.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+                        return true;
+                    }
+                }
+                finally
+                {
+                    _wsFileSendLock.Release();
+                }
+            }
+            catch
+            {
+                _isFileChannelReady = false;
+            }
+        }
+
+        // Fallback automático para o canal principal se o canal secundário não estiver aberto
+        var ws = _ws;
+        if (!_isConnected || ws == null || ws.State != WebSocketState.Open) return false;
+        try
+        {
+            int yieldWait = 0;
+            while (Volatile.Read(ref _pendingInputPackets) > 0 && _isConnected && yieldWait < 10)
+            {
+                await Task.Delay(4).ConfigureAwait(false);
+                yieldWait++;
+            }
+
+            await _wsSendLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await FlushPendingMouseMoveUnderLockAsync(ws).ConfigureAwait(false);
+                if (_isConnected && ws.State == WebSocketState.Open)
+                {
+                    await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+                }
+                await FlushPendingMouseMoveUnderLockAsync(ws).ConfigureAwait(false);
+            }
+            finally
+            {
+                _wsSendLock.Release();
+            }
+        }
+        catch { }
+
+        return false;
     }
 
     #endregion
@@ -2736,21 +3780,21 @@ public partial class AcessoRemotoViewerWindow : Window
     private void TxtCurrentPath_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
-            SendJson(new { type = "fs_list", path = TxtCurrentPath.Text.Trim() });
+            SendFileJson(new { type = "fs_list", path = TxtCurrentPath.Text.Trim() });
     }
 
     private void BtnRefreshFiles_Click(object sender, RoutedEventArgs e)
     {
-        SendJson(new { type = "fs_list", path = _currentRemotePath });
+        SendFileJson(new { type = "fs_list", path = _currentRemotePath });
     }
 
     private void BtnUpDir_Click(object sender, RoutedEventArgs e)
     {
         var parent = Directory.GetParent(_currentRemotePath.TrimEnd('\\'))?.FullName;
         if (!string.IsNullOrEmpty(parent))
-            SendJson(new { type = "fs_list", path = parent });
+            SendFileJson(new { type = "fs_list", path = parent });
         else
-            SendJson(new { type = "fs_list", path = "DRIVES" });
+            SendFileJson(new { type = "fs_list", path = "DRIVES" });
     }
 
     private void LvFiles_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -2798,7 +3842,7 @@ public partial class AcessoRemotoViewerWindow : Window
         if (LvFiles.SelectedItem is RemoteViewerFileItem item && item.IsDir)
         {
             string newPath = System.IO.Path.Combine(_currentRemotePath, item.Name);
-            SendJson(new { type = "fs_list", path = newPath });
+            SendFileJson(new { type = "fs_list", path = newPath });
         }
     }
 
@@ -2809,7 +3853,7 @@ public partial class AcessoRemotoViewerWindow : Window
             if (item.IsDir)
             {
                 string newPath = Path.Combine(_currentRemotePath, item.Name);
-                SendJson(new { type = "fs_list", path = newPath });
+                SendFileJson(new { type = "fs_list", path = newPath });
             }
             else
             {
@@ -2839,17 +3883,24 @@ public partial class AcessoRemotoViewerWindow : Window
 
         if (sfd.ShowDialog() == true)
         {
-            _downloadDestPath = sfd.FileName;
-            _downloadStream = System.IO.File.Create(_downloadDestPath);
+            string transferId = Guid.NewGuid().ToString("N");
+            lock (_downloadSync)
+            {
+                try { _downloadStream?.Dispose(); } catch { }
+                _downloadDestPath = sfd.FileName;
+                _downloadStream = System.IO.File.Create(_downloadDestPath);
+                _activeDownloadTransferId = transferId;
+            }
+
             TransferProgressBar.Value = 0;
             LblTransferStatus.Text = item.IsDir ? $"Compactando e baixando pasta '{item.Name}'..." : $"Iniciando download de {item.Name}...";
 
             string remoteFilePath = Path.Combine(_currentRemotePath, item.Name);
-            SendJson(new
+            SendFileJson(new
             {
                 type = "fs_download_start",
                 remote_path = remoteFilePath,
-                transfer_id = Guid.NewGuid().ToString()
+                transfer_id = transferId
             });
         }
     }
@@ -2858,78 +3909,18 @@ public partial class AcessoRemotoViewerWindow : Window
     {
         var ofd = new OpenFileDialog
         {
-            Title = "Selecione o Arquivo Local para Enviar ao Cliente"
+            Title = "Selecione os Arquivos Locais para Enviar ao Cliente",
+            Multiselect = true
         };
 
-        if (ofd.ShowDialog() == true)
+        if (ofd.ShowDialog() == true && ofd.FileNames.Length > 0)
         {
-            var localPath = ofd.FileName;
-            var fileName = Path.GetFileName(localPath);
-            var targetRemotePath = Path.Combine(_currentRemotePath, fileName);
+            string targetBaseDir = string.IsNullOrWhiteSpace(_currentRemotePath) ||
+                                   string.Equals(_currentRemotePath, "DRIVES", StringComparison.OrdinalIgnoreCase)
+                ? "C:\\"
+                : _currentRemotePath;
 
-            TransferProgressBar.Value = 0;
-            LblTransferStatus.Text = $"Iniciando envio de {fileName}...";
-
-            await Task.Run(async () =>
-            {
-                const int chunkSize = 64 * 1024;
-                using var fs = new System.IO.FileStream(localPath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite);
-                long totalSize = fs.Length;
-                long offset = 0;
-                byte[] buffer = new byte[chunkSize];
-
-                if (totalSize == 0)
-                {
-                    await SendJsonAsync(new
-                    {
-                        type = "fs_upload_chunk",
-                        remote_path = targetRemotePath,
-                        offset = 0L,
-                        total_size = 0L,
-                        chunk_b64 = "",
-                        is_last = true
-                    });
-                }
-
-                while (offset < totalSize && _isConnected)
-                {
-                    int read = fs.Read(buffer, 0, buffer.Length);
-                    if (read <= 0) break;
-
-                    byte[] chunk = new byte[read];
-                    Array.Copy(buffer, chunk, read);
-
-                    bool isLast = (offset + read) >= totalSize;
-                    string b64 = Convert.ToBase64String(chunk);
-
-                    await SendJsonAsync(new
-                    {
-                        type = "fs_upload_chunk",
-                        remote_path = targetRemotePath,
-                        offset = offset,
-                        total_size = totalSize,
-                        chunk_b64 = b64,
-                        is_last = isLast
-                    });
-
-                    offset += read;
-                    int percent = (int)(offset * 100 / totalSize);
-
-                    Dispatcher.Invoke(() =>
-                    {
-                        TransferProgressBar.Value = percent;
-                        LblTransferStatus.Text = $"Enviando... {percent}% ({offset / 1024} KB de {totalSize / 1024} KB)";
-                    });
-                }
-
-                Dispatcher.Invoke(() =>
-                {
-                    TransferProgressBar.Value = 100;
-                    LblTransferStatus.Text = "Arquivo enviado com sucesso!";
-                    MessageBox.Show($"Arquivo enviado com sucesso para o cliente:\n{targetRemotePath}", "Envio Concluído", MessageBoxButton.OK, MessageBoxImage.Information);
-                    SendJson(new { type = "fs_list", path = _currentRemotePath });
-                });
-            });
+            await UploadDroppedItemsAsync(ofd.FileNames, targetBaseDir, targetBaseDir, refreshFileManagerOnComplete: true);
         }
     }
 
@@ -2945,10 +3936,13 @@ public partial class AcessoRemotoViewerWindow : Window
     private void BtnConfirmNewFolder_Click(object sender, RoutedEventArgs e)
     {
         var folderName = TxtNewFolderName.Text.Trim();
-        if (!string.IsNullOrWhiteSpace(folderName))
+        if (!string.IsNullOrWhiteSpace(folderName) &&
+            !string.Equals(_currentRemotePath, "DRIVES", StringComparison.OrdinalIgnoreCase))
         {
-            string targetDir = Path.Combine(_currentRemotePath, folderName);
-            SendJson(new { type = "fs_mkdir", path = targetDir });
+            var safeFolderName = AcessoRemotoClipboard.SanitizeRelativePath(folderName, folderName);
+            string baseDir = string.IsNullOrWhiteSpace(_currentRemotePath) ? "C:\\" : _currentRemotePath;
+            string targetDir = Path.Combine(baseDir, safeFolderName);
+            SendFileJson(new { type = "fs_mkdir", path = targetDir });
         }
         ModalNewFolderOverlay.Visibility = Visibility.Collapsed;
     }
@@ -2987,7 +3981,7 @@ public partial class AcessoRemotoViewerWindow : Window
         if (res == MessageBoxResult.Yes)
         {
             string targetPath = Path.Combine(_currentRemotePath, item.Name);
-            SendJson(new { type = "fs_delete", path = targetPath });
+            SendFileJson(new { type = "fs_delete", path = targetPath });
         }
     }
 

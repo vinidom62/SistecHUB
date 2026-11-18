@@ -1,7 +1,7 @@
 <UserControl x:Class="SistecHub.Modulos.AcessoRemoto.AcessoRemotoWpfControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#F8FAFC"
+             Background="{DynamicResource Theme.PageBg}"
              FontFamily="Segoe UI"
              UseLayoutRounding="True"
              SnapsToDevicePixels="True">
@@ -9,8 +9,8 @@
     <UserControl.Resources>
         <!-- Card branco padrão com borda suave e sombra sutil -->
         <Style x:Key="ElevatedCardBorderStyle" TargetType="Border">
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="Background" Value="{DynamicResource Theme.CardBg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.BorderSubtle}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="14"/>
             <Setter Property="Effect">
@@ -59,9 +59,9 @@
 
         <!-- Botão Secundário Contorno -->
         <Style x:Key="OutlineRoundedButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="Foreground" Value="#1E293B"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Background" Value="{DynamicResource Theme.CardBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextHeading}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.BorderStrong}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -83,11 +83,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#F8FAFC"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#94A3B8"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.SurfaceBg}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Theme.BorderStrong}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#F1F5F9"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.SubtleBg}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
@@ -100,9 +100,9 @@
 
         <!-- Botão Integrado de Reconectar / Atualizar no Cabeçalho -->
         <Style x:Key="HeaderRefreshButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#F8FAFC"/>
-            <Setter Property="Foreground" Value="#1E293B"/>
-            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="Background" Value="{DynamicResource Theme.SurfaceBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextHeading}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.BorderSubtle}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -120,16 +120,16 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#EEF2FF"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#C7D2FE"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.IndigoSoftBg}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Theme.IndigoSoftBorder}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#E0E7FF"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.IndigoHoverBg}"/>
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="#6366F1"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Bd" Property="Background" Value="#F8FAFC"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#E2E8F0"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.SurfaceBg}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Theme.BorderSubtle}"/>
                                 <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -140,9 +140,9 @@
 
         <!-- Botão Pastel Indigo (Abrir Chat) -->
         <Style x:Key="SoftIndigoButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#EEF2FF"/>
-            <Setter Property="Foreground" Value="#4F46E5"/>
-            <Setter Property="BorderBrush" Value="#C7D2FE"/>
+            <Setter Property="Background" Value="{DynamicResource Theme.IndigoSoftBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Theme.IndigoText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.IndigoSoftBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -164,10 +164,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#E0E7FF"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.IndigoHoverBg}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#C7D2FE"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.IndigoPressedBg}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -211,9 +211,9 @@
 
         <!-- Botão Pastel Vermelho -->
         <Style x:Key="SoftDangerButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#FEE2E2"/>
-            <Setter Property="Foreground" Value="#B91C1C"/>
-            <Setter Property="BorderBrush" Value="#FCA5A5"/>
+            <Setter Property="Background" Value="{DynamicResource Theme.DangerSoftBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Theme.DangerText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Theme.DangerSoftBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -235,10 +235,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#FECACA"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.DangerHoverBg}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#FCA5A5"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.DangerHoverBg}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -266,17 +266,17 @@
                     <TextBlock Text="Acesso remoto"
                                FontSize="26"
                                FontWeight="Bold"
-                               Foreground="#0F172A"
+                               Foreground="{DynamicResource Theme.TextPrimary}"
                                Margin="0,0,12,0"
                                VerticalAlignment="Center"/>
-                    <Border Background="#EEF2FF"
+                    <Border Background="{DynamicResource Theme.IndigoSoftBg}"
                             CornerRadius="6"
                             Padding="8,2"
                             VerticalAlignment="Center">
                         <TextBlock Text="SUPORTE SISTEC"
                                    FontSize="10.5"
                                    FontWeight="Bold"
-                                   Foreground="#4F46E5"/>
+                                   Foreground="{DynamicResource Theme.IndigoText}"/>
                     </Border>
                 </StackPanel>
 
@@ -289,7 +289,7 @@
 
                 <TextBlock Text="Compartilhe seu código para receber assistência técnica ou conecte-se a outro computador remoto."
                            FontSize="13"
-                           Foreground="#64748B"
+                           Foreground="{DynamicResource Theme.TextMuted}"
                            TextWrapping="Wrap"/>
             </StackPanel>
 
@@ -311,27 +311,27 @@
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Border Width="22" Height="22"
                                 CornerRadius="11"
-                                Background="#EEF2FF"
+                                Background="{DynamicResource Theme.IndigoSoftBg}"
                                 Margin="0,0,8,0">
                             <TextBlock Text="&#xE77B;"
                                        FontFamily="Segoe MDL2 Assets"
                                        FontSize="12"
-                                       Foreground="#4F46E5"
+                                       Foreground="{DynamicResource Theme.IndigoText}"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Border>
                         <TextBlock Text="Login"
                                    FontSize="12.5"
                                    FontWeight="SemiBold"
-                                   Foreground="#4F46E5"
+                                   Foreground="{DynamicResource Theme.IndigoText}"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
 
                 <!-- Card de Perfil do Técnico GLPI (Visível quando AUTENTICADO no GLPI) -->
                 <Border x:Name="HeaderTechnicianCard"
-                        Background="#FFFFFF"
-                        BorderBrush="#E2E8F0"
+                        Background="{DynamicResource Theme.CardBg}"
+                        BorderBrush="{DynamicResource Theme.BorderSubtle}"
                         BorderThickness="1"
                         CornerRadius="10"
                         Height="44"
@@ -366,17 +366,17 @@
                                        Text="Técnico"
                                        FontSize="12"
                                        FontWeight="Bold"
-                                       Foreground="#0F172A"
+                                       Foreground="{DynamicResource Theme.TextPrimary}"
                                        MaxWidth="140"
                                        TextTrimming="CharacterEllipsis"/>
                             <TextBlock Text="● Técnico Angelus"
                                        FontSize="10"
                                        FontWeight="SemiBold"
-                                       Foreground="#16A34A"/>
+                                       Foreground="{DynamicResource Theme.SuccessText}"/>
                         </StackPanel>
 
                         <!-- Divisor vertical -->
-                        <Border Width="1" Height="20" Background="#E2E8F0" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="20" Background="{DynamicResource Theme.StrongBg}" Margin="0,0,6,0" VerticalAlignment="Center"/>
 
                         <!-- Botão Sair / Desconectar -->
                         <Button x:Name="BtnHeaderGlpiLogout"
@@ -389,7 +389,7 @@
                             <TextBlock Text="&#xE711;"
                                        FontFamily="Segoe MDL2 Assets"
                                        FontSize="12"
-                                       Foreground="#94A3B8"
+                                       Foreground="{DynamicResource Theme.TextSubtle}"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
                         </Button>
@@ -398,8 +398,8 @@
 
                 <!-- Card Integrado: Status da Conexão + Botão Reconectar/Atualizar -->
                 <Border x:Name="HeaderStatusCard"
-                        Background="#FFFFFF"
-                        BorderBrush="#E2E8F0"
+                        Background="{DynamicResource Theme.CardBg}"
+                        BorderBrush="{DynamicResource Theme.BorderSubtle}"
                         BorderThickness="1"
                         CornerRadius="10"
                         Height="44"
@@ -423,19 +423,19 @@
                                        Text="STATUS DO SERVIDOR"
                                        FontSize="9"
                                        FontWeight="Bold"
-                                       Foreground="#64748B"
+                                       Foreground="{DynamicResource Theme.TextMuted}"
                                        Margin="0,0,0,1"/>
                             <TextBlock x:Name="TxtStatusBadge"
                                        Text="Conectando…"
                                        FontSize="12"
                                        FontWeight="SemiBold"
-                                       Foreground="#1E293B"/>
+                                       Foreground="{DynamicResource Theme.TextHeading}"/>
                         </StackPanel>
 
                         <!-- Divisor vertical discreto -->
                         <Border Width="1"
                                 Height="22"
-                                Background="#E2E8F0"
+                                Background="{DynamicResource Theme.StrongBg}"
                                 Margin="12,0,8,0"
                                 VerticalAlignment="Center"/>
 
@@ -451,7 +451,7 @@
                                            Text="&#xE72C;"
                                            FontFamily="Segoe MDL2 Assets"
                                            FontSize="13"
-                                           Foreground="#334155"
+                                           Foreground="{DynamicResource Theme.TextSecondary}"
                                            RenderTransformOrigin="0.5,0.5"
                                            VerticalAlignment="Center">
                                     <TextBlock.RenderTransform>
@@ -462,7 +462,7 @@
                                            Text="Reconectar"
                                            FontSize="12"
                                            FontWeight="SemiBold"
-                                           Foreground="#334155"
+                                           Foreground="{DynamicResource Theme.TextSecondary}"
                                            Margin="6,0,0,0"
                                            VerticalAlignment="Center"/>
                             </StackPanel>
@@ -485,8 +485,8 @@
                 <!-- CARD DE SESSÃO REMOTA ATIVA (Banner Destaque) -->
                 <Border x:Name="ActiveSessionCard"
                         Grid.Row="0"
-                        Background="#F0FDF4"
-                        BorderBrush="#86EFAC"
+                        Background="{DynamicResource Theme.SuccessSoftBg}"
+                        BorderBrush="{DynamicResource Theme.SuccessSoftBorder}"
                         BorderThickness="1.5"
                         CornerRadius="14"
                         Padding="26,18"
@@ -525,18 +525,18 @@
 
                             <StackPanel VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
-                                    <Border Background="#DCFCE7"
+                                    <Border Background="{DynamicResource Theme.SuccessSoftBg}"
                                             CornerRadius="6"
                                             Padding="8,2"
                                             Margin="0,0,8,0">
                                         <TextBlock Text="● SESSÃO ATIVA"
                                                    FontSize="10.5"
                                                    FontWeight="Bold"
-                                                   Foreground="#166534"/>
+                                                   Foreground="{DynamicResource Theme.SuccessText}"/>
                                     </Border>
 
-                                    <Border Background="#FFFFFF"
-                                            BorderBrush="#86EFAC"
+                                    <Border Background="{DynamicResource Theme.CardBg}"
+                                            BorderBrush="{DynamicResource Theme.SuccessSoftBorder}"
                                             BorderThickness="1"
                                             CornerRadius="6"
                                             Padding="8,2">
@@ -544,7 +544,7 @@
                                                    Text="Duração: 00:00:00"
                                                    FontSize="11"
                                                    FontWeight="Bold"
-                                                   Foreground="#166534"/>
+                                                   Foreground="{DynamicResource Theme.SuccessText}"/>
                                     </Border>
                                 </StackPanel>
 
@@ -552,12 +552,12 @@
                                            Text="Técnico de Suporte"
                                            FontSize="17"
                                            FontWeight="Bold"
-                                           Foreground="#064E3B"
+                                           Foreground="{DynamicResource Theme.SuccessText}"
                                            Margin="0,1,0,2"/>
 
                                 <TextBlock Text="Técnico conectado e interagindo com este computador com segurança."
                                            FontSize="12"
-                                           Foreground="#047857"/>
+                                           Foreground="{DynamicResource Theme.SuccessText}"/>
                             </StackPanel>
                         </StackPanel>
 
@@ -616,13 +616,13 @@
                                 <Border Grid.Column="0"
                                         Width="46" Height="46"
                                         CornerRadius="12"
-                                        Background="#EEF2FF"
+                                        Background="{DynamicResource Theme.IndigoSoftBg}"
                                         Margin="0,0,14,0"
                                         VerticalAlignment="Center">
                                     <TextBlock Text="&#xE8B9;"
                                                FontFamily="Segoe MDL2 Assets"
                                                FontSize="22"
-                                               Foreground="#4F46E5"
+                                               Foreground="{DynamicResource Theme.IndigoText}"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
                                 </Border>
@@ -631,19 +631,19 @@
                                     <TextBlock Text="Permitir Controle Remoto"
                                                FontSize="17.5"
                                                FontWeight="Bold"
-                                               Foreground="#0F172A"
+                                               Foreground="{DynamicResource Theme.TextPrimary}"
                                                Margin="0,0,0,2"/>
                                     <TextBlock Text="Informe seu código para que o técnico possa prestar suporte."
                                                FontSize="12"
-                                               Foreground="#64748B"
+                                               Foreground="{DynamicResource Theme.TextMuted}"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Grid>
 
                             <!-- Display Destacado do ID -->
                             <Border Grid.Row="1"
-                                    Background="#F8FAFC"
-                                    BorderBrush="#CBD5E1"
+                                    Background="{DynamicResource Theme.SurfaceBg}"
+                                    BorderBrush="{DynamicResource Theme.BorderStrong}"
                                     BorderThickness="1"
                                     CornerRadius="12"
                                     Padding="20,16"
@@ -658,7 +658,7 @@
                                                Text="SEU ID DE ACESSO REMOTO"
                                                FontSize="11"
                                                FontWeight="Bold"
-                                               Foreground="#64748B"
+                                               Foreground="{DynamicResource Theme.TextMuted}"
                                                Margin="0,0,0,4"/>
 
                                     <TextBlock Grid.Row="1"
@@ -666,7 +666,7 @@
                                                Text="--- --- ---"
                                                FontSize="36"
                                                FontWeight="Bold"
-                                               Foreground="#4F46E5"
+                                               Foreground="{DynamicResource Theme.IndigoText}"
                                                FontFamily="Segoe UI"/>
                                 </Grid>
                             </Border>
@@ -714,8 +714,8 @@
 
                                 <!-- Mensagem de feedback de cópia com checkmark verde -->
                                 <Border x:Name="TxtCopyFeedbackBorder"
-                                        Background="#DCFCE7"
-                                        BorderBrush="#86EFAC"
+                                        Background="{DynamicResource Theme.SuccessSoftBg}"
+                                        BorderBrush="{DynamicResource Theme.SuccessSoftBorder}"
                                         BorderThickness="1"
                                         CornerRadius="6"
                                         Padding="10,4"
@@ -726,7 +726,7 @@
                                         <TextBlock Text="&#xE73E;"
                                                    FontFamily="Segoe MDL2 Assets"
                                                    FontSize="12"
-                                                   Foreground="#16A34A"
+                                                   Foreground="{DynamicResource Theme.SuccessText}"
                                                    FontWeight="Bold"
                                                    Margin="0,0,6,0"
                                                    VerticalAlignment="Center"/>
@@ -734,7 +734,7 @@
                                                    Text="ID de acesso copiado!"
                                                    FontSize="12"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#166534"
+                                                   Foreground="{DynamicResource Theme.SuccessText}"
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Border>
@@ -742,8 +742,8 @@
 
                             <!-- Bloco Informativo de Segurança e Privacidade -->
                             <Border Grid.Row="3"
-                                    Background="#F1F5F9"
-                                    BorderBrush="#E2E8F0"
+                                    Background="{DynamicResource Theme.SubtleBg}"
+                                    BorderBrush="{DynamicResource Theme.BorderSubtle}"
                                     BorderThickness="1"
                                     CornerRadius="10"
                                     Padding="16,14"
@@ -753,29 +753,29 @@
                                         <TextBlock Text="&#xEA18;"
                                                    FontFamily="Segoe MDL2 Assets"
                                                    FontSize="15"
-                                                   Foreground="#4F46E5"
+                                                   Foreground="{DynamicResource Theme.IndigoText}"
                                                    Margin="0,0,8,0"
                                                    VerticalAlignment="Center"/>
                                         <TextBlock Text="Segurança e Controle Total"
                                                    FontSize="12.5"
                                                    FontWeight="Bold"
-                                                   Foreground="#1E293B"
+                                                   Foreground="{DynamicResource Theme.TextHeading}"
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
 
                                     <TextBlock Text="• O técnico só poderá se conectar após você aceitar expressamente na tela."
                                                FontSize="11.5"
-                                               Foreground="#475569"
+                                               Foreground="{DynamicResource Theme.TextBody}"
                                                Margin="0,0,0,4"
                                                TextWrapping="Wrap"/>
                                     <TextBlock Text="• Você acompanha todas as ações e pode encerrar a conexão a qualquer segundo."
                                                FontSize="11.5"
-                                               Foreground="#475569"
+                                               Foreground="{DynamicResource Theme.TextBody}"
                                                Margin="0,0,0,4"
                                                TextWrapping="Wrap"/>
                                     <TextBlock Text="• Sessão criptografada de ponta a ponta para proteger seus dados."
                                                FontSize="11.5"
-                                               Foreground="#475569"
+                                               Foreground="{DynamicResource Theme.TextBody}"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Border>
@@ -816,13 +816,13 @@
                                 <Border Grid.Column="0"
                                         Width="46" Height="46"
                                         CornerRadius="12"
-                                        Background="#DCFCE7"
+                                        Background="{DynamicResource Theme.SuccessSoftBg}"
                                         Margin="0,0,14,0"
                                         VerticalAlignment="Center">
                                     <TextBlock Text="&#xE76C;"
                                                FontFamily="Segoe MDL2 Assets"
                                                FontSize="20"
-                                               Foreground="#16A34A"
+                                               Foreground="{DynamicResource Theme.SuccessText}"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
                                 </Border>
@@ -831,11 +831,11 @@
                                     <TextBlock Text="Realizar Acesso Remoto"
                                                FontSize="17.5"
                                                FontWeight="Bold"
-                                               Foreground="#0F172A"
+                                               Foreground="{DynamicResource Theme.TextPrimary}"
                                                Margin="0,0,0,2"/>
                                     <TextBlock Text="Conecte-se a outro computador para prestar assistência técnica."
                                                FontSize="12"
-                                               Foreground="#64748B"
+                                               Foreground="{DynamicResource Theme.TextMuted}"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Grid>
@@ -845,12 +845,12 @@
                                 <TextBlock Text="ID DO COMPUTADOR REMOTO"
                                            FontSize="11"
                                            FontWeight="Bold"
-                                           Foreground="#64748B"
+                                           Foreground="{DynamicResource Theme.TextMuted}"
                                            Margin="0,0,0,6"/>
 
                                 <Border Height="44"
-                                        Background="#FFFFFF"
-                                        BorderBrush="#CBD5E1"
+                                        Background="{DynamicResource Theme.CardBg}"
+                                        BorderBrush="{DynamicResource Theme.BorderStrong}"
                                         BorderThickness="1.5"
                                         CornerRadius="10">
                                     <Grid Margin="12,0">
@@ -863,7 +863,7 @@
                                                    Text="&#xE7F4;"
                                                    FontFamily="Segoe MDL2 Assets"
                                                    FontSize="16"
-                                                   Foreground="#94A3B8"
+                                                   Foreground="{DynamicResource Theme.TextSubtle}"
                                                    VerticalAlignment="Center"
                                                    Margin="0,0,10,0"/>
 
@@ -874,7 +874,7 @@
                                                      Padding="0"
                                                      FontSize="18"
                                                      FontWeight="Bold"
-                                                     Foreground="#4F46E5"
+                                                     Foreground="{DynamicResource Theme.IndigoText}"
                                                      MaxLength="14"
                                                      VerticalContentAlignment="Center"
                                                      KeyDown="TxtConnectTargetId_KeyDown"
@@ -885,7 +885,7 @@
                                                        IsHitTestVisible="False"
                                                        FontSize="15"
                                                        FontWeight="Normal"
-                                                       Foreground="#94A3B8"
+                                                       Foreground="{DynamicResource Theme.TextSubtle}"
                                                        VerticalAlignment="Center"/>
                                         </Grid>
                                     </Grid>
@@ -897,13 +897,13 @@
                                 <TextBlock Text="SENHA DE ACESSO (OPCIONAL)"
                                            FontSize="11"
                                            FontWeight="Bold"
-                                           Foreground="#64748B"
+                                           Foreground="{DynamicResource Theme.TextMuted}"
                                            Margin="0,0,0,6"/>
 
                                 <Border x:Name="BorderConnectPassword"
                                         Height="44"
-                                        Background="#F8FAFC"
-                                        BorderBrush="#CBD5E1"
+                                        Background="{DynamicResource Theme.SurfaceBg}"
+                                        BorderBrush="{DynamicResource Theme.BorderStrong}"
                                         BorderThickness="1.5"
                                         CornerRadius="10"
                                         ToolTip="Faça login para desbloquear"
@@ -922,7 +922,7 @@
                                                    Text="&#xE8D7;"
                                                    FontFamily="Segoe MDL2 Assets"
                                                    FontSize="16"
-                                                   Foreground="#94A3B8"
+                                                   Foreground="{DynamicResource Theme.TextSubtle}"
                                                    VerticalAlignment="Center"
                                                    Margin="0,0,10,0"/>
 
@@ -935,7 +935,7 @@
                                                          Padding="0"
                                                          FontSize="16"
                                                          FontWeight="Bold"
-                                                         Foreground="#0F172A"
+                                                         Foreground="{DynamicResource Theme.TextPrimary}"
                                                          MaxLength="32"
                                                          VerticalContentAlignment="Center"
                                                          ToolTip="Faça login para desbloquear"
@@ -949,7 +949,7 @@
                                                      Padding="0"
                                                      FontSize="16"
                                                      FontWeight="Bold"
-                                                     Foreground="#0F172A"
+                                                     Foreground="{DynamicResource Theme.TextPrimary}"
                                                      MaxLength="32"
                                                      VerticalContentAlignment="Center"
                                                      Visibility="Collapsed"
@@ -963,7 +963,7 @@
                                                        IsHitTestVisible="False"
                                                        FontSize="14"
                                                        FontWeight="Normal"
-                                                       Foreground="#94A3B8"
+                                                       Foreground="{DynamicResource Theme.TextSubtle}"
                                                        VerticalAlignment="Center"/>
                                         </Grid>
 
@@ -979,7 +979,7 @@
                                             <TextBlock Text="&#xE7B3;"
                                                        FontFamily="Segoe MDL2 Assets"
                                                        FontSize="15"
-                                                       Foreground="#64748B"
+                                                       Foreground="{DynamicResource Theme.TextMuted}"
                                                        HorizontalAlignment="Center"
                                                        VerticalAlignment="Center"/>
                                         </Button>
@@ -1011,7 +1011,7 @@
                                 <TextBlock x:Name="TxtConnectError"
                                            Text=""
                                            FontSize="12"
-                                           Foreground="#DC2626"
+                                           Foreground="{DynamicResource Theme.DangerText}"
                                            Margin="0,8,0,0"
                                            FontWeight="SemiBold"
                                            TextWrapping="Wrap"
@@ -1020,8 +1020,8 @@
 
                             <!-- Guia Prático de Conexão -->
                             <Border Grid.Row="4"
-                                    Background="#F8FAFC"
-                                    BorderBrush="#E2E8F0"
+                                    Background="{DynamicResource Theme.SurfaceBg}"
+                                    BorderBrush="{DynamicResource Theme.BorderSubtle}"
                                     BorderThickness="1"
                                     CornerRadius="10"
                                     Padding="16,14"
@@ -1031,29 +1031,29 @@
                                         <TextBlock Text="&#xE946;"
                                                    FontFamily="Segoe MDL2 Assets"
                                                    FontSize="15"
-                                                   Foreground="#16A34A"
+                                                   Foreground="{DynamicResource Theme.SuccessText}"
                                                    Margin="0,0,8,0"
                                                    VerticalAlignment="Center"/>
                                         <TextBlock Text="Instruções de Atendimento"
                                                    FontSize="12.5"
                                                    FontWeight="Bold"
-                                                   Foreground="#1E293B"
+                                                   Foreground="{DynamicResource Theme.TextHeading}"
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
 
                                     <TextBlock Text="• Solicite o ID de 9 dígitos exibido na tela do usuário remoto."
                                                FontSize="11.5"
-                                               Foreground="#475569"
+                                               Foreground="{DynamicResource Theme.TextBody}"
                                                Margin="0,0,0,4"
                                                TextWrapping="Wrap"/>
                                     <TextBlock Text="• Digite o código e clique em Conectar para enviar o pedido de sessão."
                                                FontSize="11.5"
-                                               Foreground="#475569"
+                                               Foreground="{DynamicResource Theme.TextBody}"
                                                Margin="0,0,0,4"
                                                TextWrapping="Wrap"/>
                                     <TextBlock Text="• Se a máquina remota possuir acesso não supervisionado, insira a senha."
                                                FontSize="11.5"
-                                               Foreground="#475569"
+                                               Foreground="{DynamicResource Theme.TextBody}"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Border>

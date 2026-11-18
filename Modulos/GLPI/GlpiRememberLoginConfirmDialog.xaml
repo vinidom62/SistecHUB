@@ -14,8 +14,8 @@
         FontFamily="Segoe UI"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
 
-    <Border Background="#FFFFFF"
-            BorderBrush="#E2E8F0"
+    <Border Background="{DynamicResource Theme.CardBg}"
+            BorderBrush="{DynamicResource Theme.BorderSubtle}"
             BorderThickness="1"
             CornerRadius="16"
             Padding="28,24"
@@ -36,15 +36,15 @@
                 <Border Grid.Column="0"
                         Width="44" Height="44"
                         CornerRadius="12"
-                        Background="#FEF3C7"
-                        BorderBrush="#FDE68A"
+                        Background="{DynamicResource Theme.WarningSoftBg}"
+                        BorderBrush="{DynamicResource Theme.WarningSoftBorder}"
                         BorderThickness="1"
                         Margin="0,0,14,0"
                         VerticalAlignment="Center">
                     <TextBlock Text="&#xE7BA;"
                                FontFamily="Segoe MDL2 Assets"
                                FontSize="20"
-                               Foreground="#D97706"
+                               Foreground="{DynamicResource Theme.WarningText}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"/>
                 </Border>
@@ -53,17 +53,17 @@
                     <TextBlock Text="Salvar Login na Máquina"
                                FontSize="16.5"
                                FontWeight="Bold"
-                               Foreground="#0F172A"
+                               Foreground="{DynamicResource Theme.TextPrimary}"
                                Margin="0,0,0,2"/>
                     <TextBlock Text="Confirmação de responsabilidade e auditoria"
                                FontSize="12"
-                               Foreground="#64748B"/>
+                               Foreground="{DynamicResource Theme.TextMuted}"/>
                 </StackPanel>
             </Grid>
 
             <!-- Mensagem Exata Solicitada -->
-            <Border Background="#F8FAFC"
-                    BorderBrush="#E2E8F0"
+            <Border Background="{DynamicResource Theme.SurfaceBg}"
+                    BorderBrush="{DynamicResource Theme.BorderSubtle}"
                     BorderThickness="1"
                     CornerRadius="10"
                     Padding="16,14"
@@ -71,7 +71,7 @@
                 <TextBlock Text="Este login ficará salvo na máquina, com isso, todo acesso que esse equipamento fizer, ficará um log no sistema que você realizou esse acesso."
                            FontSize="13.5"
                            LineHeight="21"
-                           Foreground="#1E293B"
+                           Foreground="{DynamicResource Theme.TextHeading}"
                            FontWeight="Medium"
                            TextWrapping="Wrap"/>
             </Border>
@@ -87,9 +87,9 @@
                 <Button Grid.Column="0"
                         Content="Cancelar"
                         Height="40"
-                        Background="#FFFFFF"
-                        Foreground="#475569"
-                        BorderBrush="#CBD5E1"
+                        Background="{DynamicResource Theme.CardBg}"
+                        Foreground="{DynamicResource Theme.TextBody}"
+                        BorderBrush="{DynamicResource Theme.BorderStrong}"
                         BorderThickness="1"
                         FontSize="13"
                         FontWeight="SemiBold"

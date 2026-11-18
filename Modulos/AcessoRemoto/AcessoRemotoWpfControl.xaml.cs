@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using SistecHub.UI;
 using MediaBrush = System.Windows.Media.Brush;
 using MediaColor = System.Windows.Media.Color;
 using MediaSolidColorBrush = System.Windows.Media.SolidColorBrush;
@@ -27,18 +28,18 @@ public sealed partial class AcessoRemotoWpfControl : System.Windows.Controls.Use
     static readonly MediaBrush StatusRedBrush = CreateFrozenBrush(239, 68, 68);
     static readonly MediaBrush StatusSlateBrush = CreateFrozenBrush(148, 163, 184);
 
-    static readonly MediaBrush TextDarkBrush = CreateFrozenBrush(30, 41, 59);
-    static readonly MediaBrush TextActiveBrush = CreateFrozenBrush(22, 101, 52);
-    static readonly MediaBrush TextAmberBrush = CreateFrozenBrush(180, 83, 9);
-    static readonly MediaBrush TextRedBrush = CreateFrozenBrush(185, 28, 28);
-    static readonly MediaBrush TextMutedBrush = CreateFrozenBrush(100, 116, 139);
-    static readonly MediaBrush AccentIndigoBrush = CreateFrozenBrush(79, 70, 229);
-    static readonly MediaBrush DefaultIconTextBrush = CreateFrozenBrush(51, 65, 85);
+    static MediaBrush TextDarkBrush => AppThemeManager.TextHeading;
+    static MediaBrush TextActiveBrush => AppThemeManager.SuccessText;
+    static MediaBrush TextAmberBrush => AppThemeManager.WarningText;
+    static MediaBrush TextRedBrush => AppThemeManager.DangerText;
+    static MediaBrush TextMutedBrush => AppThemeManager.TextMuted;
+    static MediaBrush AccentIndigoBrush => AppThemeManager.IndigoText;
+    static MediaBrush DefaultIconTextBrush => AppThemeManager.TextSecondary;
 
-    static readonly MediaBrush PhaseDefaultFgBrush = TextMutedBrush;
+    static MediaBrush PhaseDefaultFgBrush => TextMutedBrush;
 
-    static readonly MediaBrush CopySuccessBrush = CreateFrozenBrush(22, 163, 74);
-    static readonly MediaBrush CopyErrorBrush = CreateFrozenBrush(185, 28, 28);
+    static MediaBrush CopySuccessBrush => AppThemeManager.SuccessText;
+    static MediaBrush CopyErrorBrush => AppThemeManager.DangerText;
 
     bool _isPasswordRevealed;
     bool _syncingPasswordText;
@@ -116,7 +117,7 @@ public sealed partial class AcessoRemotoWpfControl : System.Windows.Controls.Use
             }
 
             BorderConnectPassword.Opacity = 1.0;
-            BorderConnectPassword.Background = System.Windows.Media.Brushes.White;
+            BorderConnectPassword.Background = AppThemeManager.CardBg;
             BorderConnectPassword.ToolTip = null;
             PwdConnectPassword.ToolTip = null;
             TxtConnectPasswordRevealed.ToolTip = null;
@@ -133,7 +134,7 @@ public sealed partial class AcessoRemotoWpfControl : System.Windows.Controls.Use
             PwdConnectPassword.IsEnabled = false;
             TxtConnectPasswordRevealed.IsEnabled = false;
             BorderConnectPassword.Opacity = 0.7;
-            BorderConnectPassword.Background = new MediaSolidColorBrush(MediaColor.FromRgb(248, 250, 252));
+            BorderConnectPassword.Background = AppThemeManager.SurfaceBg;
             BorderConnectPassword.ToolTip = "Faça login para desbloquear";
             PwdConnectPassword.ToolTip = "Faça login para desbloquear";
             TxtConnectPasswordRevealed.ToolTip = "Faça login para desbloquear";
@@ -334,6 +335,8 @@ public sealed partial class AcessoRemotoWpfControl : System.Windows.Controls.Use
             StartSpinningReconnect();
         else
             StopSpinningReconnect();
+
+        AppThemeManager.RefreshIfDark(HeaderStatusCard);
     }
 
     bool _isReconnectingSpinning;
@@ -367,6 +370,7 @@ public sealed partial class AcessoRemotoWpfControl : System.Windows.Controls.Use
         TxtRefreshBtnLabel.Text = "Reconectar";
         TxtRefreshBtnLabel.Foreground = DefaultIconTextBrush;
         IconReconnect.Foreground = DefaultIconTextBrush;
+        AppThemeManager.RefreshIfDark(BtnReconnect);
     }
 
     void SetAvatarFallback(string techName)

@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using SistecHub.UI;
 using MediaBrush = System.Windows.Media.Brush;
 using MediaColor = System.Windows.Media.Color;
 using MediaSolidColorBrush = System.Windows.Media.SolidColorBrush;
@@ -11,13 +12,13 @@ public sealed partial class GlpiHeaderWpfControl : System.Windows.Controls.UserC
     public event EventHandler? ChamadosTabClicked;
     public event EventHandler? AberturaTabClicked;
 
-    static readonly MediaBrush ActiveBgBrush = CreateFrozenBrush(238, 242, 255);
-    static readonly MediaBrush ActiveFgBrush = CreateFrozenBrush(99, 102, 241);
+    static MediaBrush ActiveBgBrush => AppThemeManager.IndigoSoftBg;
+    static MediaBrush ActiveFgBrush => AppThemeManager.IndigoText;
     static readonly MediaBrush ActiveBorderBrush = CreateFrozenBrush(99, 102, 241);
 
-    static readonly MediaBrush InactiveBgBrush = CreateFrozenBrush(241, 245, 249);
-    static readonly MediaBrush InactiveFgBrush = CreateFrozenBrush(15, 23, 42);
-    static readonly MediaBrush InactiveBorderBrush = CreateFrozenBrush(203, 213, 225);
+    static MediaBrush InactiveBgBrush => AppThemeManager.SubtleBg;
+    static MediaBrush InactiveFgBrush => AppThemeManager.TextPrimary;
+    static MediaBrush InactiveBorderBrush => AppThemeManager.BorderStrong;
 
     public GlpiHeaderWpfControl()
     {
@@ -33,9 +34,11 @@ public sealed partial class GlpiHeaderWpfControl : System.Windows.Controls.UserC
 
     static void ApplyButtonState(System.Windows.Controls.Button btn, bool active)
     {
-        btn.Background = active ? ActiveBgBrush : InactiveBgBrush;
-        btn.Foreground = active ? ActiveFgBrush : InactiveFgBrush;
+        btn.SetResourceReference(BackgroundProperty, active ? "Theme.IndigoSoftBg" : "Theme.SubtleBg");
+        btn.SetResourceReference(ForegroundProperty, active ? "Theme.IndigoText" : "Theme.TextPrimary");
         btn.BorderBrush = active ? ActiveBorderBrush : InactiveBorderBrush;
+        if (!active)
+            btn.SetResourceReference(BorderBrushProperty, "Theme.BorderStrong");
         btn.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
     }
 

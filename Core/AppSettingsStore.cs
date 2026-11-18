@@ -47,6 +47,9 @@ public sealed class AppUserSettings
 
     /// <summary>Quando verdadeiro, o sistema de acesso remoto fica totalmente bloqueado/desabilitado nesta máquina.</summary>
     public bool RemotoBloqueado { get; set; } = false;
+
+    /// <summary>Preferência visual de modo noturno na tela inicial.</summary>
+    public bool ModoNoturno { get; set; } = false;
 }
 
 /// <summary>Conteúdo público persistido em <c>settings.json</c> (sem credenciais).</summary>
@@ -75,6 +78,8 @@ sealed class PersistedAppSettings
     public string RemotoHostToken { get; set; } = "";
 
     public bool RemotoBloqueado { get; set; } = false;
+
+    public bool ModoNoturno { get; set; } = false;
 }
 
 /// <summary>Carrega e grava <see cref="AppUserSettings"/>.</summary>
@@ -262,7 +267,8 @@ public static class AppSettingsStore
             normalized.RemotoId,
             normalized.RemotoUnattendedPassword,
             normalized.RemotoHostToken,
-            normalized.RemotoBloqueado);
+            normalized.RemotoBloqueado,
+            normalized.ModoNoturno);
     }
 
     static void WritePublicSettingsFile(
@@ -277,7 +283,8 @@ public static class AppSettingsStore
         string remotoId = "",
         string remotoUnattendedPassword = "",
         string remotoHostToken = "",
-        bool remotoBloqueado = false)
+        bool remotoBloqueado = false,
+        bool modoNoturno = false)
     {
         var json = JsonSerializer.Serialize(
             new PersistedAppSettings
@@ -296,6 +303,7 @@ public static class AppSettingsStore
                 RemotoUnattendedPassword = remotoUnattendedPassword ?? "",
                 RemotoHostToken = remotoHostToken ?? "",
                 RemotoBloqueado = remotoBloqueado,
+                ModoNoturno = modoNoturno,
             },
             JsonOptions);
         File.WriteAllText(SettingsFilePath, json);
@@ -328,6 +336,7 @@ public static class AppSettingsStore
                 settings.RemotoUnattendedPassword = parsed.RemotoUnattendedPassword ?? "";
                 settings.RemotoHostToken = parsed.RemotoHostToken ?? "";
                 settings.RemotoBloqueado = parsed.RemotoBloqueado;
+                settings.ModoNoturno = parsed.ModoNoturno;
             }
 
             var legacySecrets = TryReadLegacySecrets(json);
@@ -366,7 +375,8 @@ public static class AppSettingsStore
                 settings.RemotoId,
                 settings.RemotoUnattendedPassword,
                 settings.RemotoHostToken,
-                settings.RemotoBloqueado);
+                settings.RemotoBloqueado,
+                settings.ModoNoturno);
 
         return settings;
     }
